@@ -18,7 +18,7 @@ def main() -> None:
         run_name="south-building",
     )
 
-    use_gpu = os.environ.get("CYCLONE_USE_GPU", "1") == "1"
+    use_gpu = False
 
     pipeline = ReconstructionPipeline(
         config,

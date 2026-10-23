@@ -185,7 +185,6 @@ class ReconstructionPipeline:
         ])
 
         self._require_file(self.mesh_path, "Poisson mesh")
-
         self.textured_mesh_dir.mkdir(parents=True, exist_ok=True)
 
         self.runner.run([
@@ -274,5 +273,5 @@ bpy.ops.export_scene.gltf(
         sparse_model = self._build_sparse_model()
         self._build_dense_cloud(sparse_model)
         self._build_textured_mesh()
-        self._convert_obj_to_glb()
-        self._optimize_glb()
+        #self._convert_obj_to_glb()
+        #self._optimize_glb()
