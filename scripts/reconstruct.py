@@ -16,6 +16,9 @@ def main() -> None:
             r"D:\Image-to-3D\COLMAP\COLMAP.bat"
         ),
         run_name="south-building",
+        input_dir=Path(
+            r"C:\Users\HP\Downloads\colmap-half-building\south-building\images"
+        ),
     )
 
     use_gpu = False
