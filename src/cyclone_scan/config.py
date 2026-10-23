@@ -6,6 +6,7 @@ from pathlib import Path
 class ScanConfig:
     project_root: Path
     colmap_executable: Path
+    run_name: str = "test-object"
 
     @property
     def image_dir(self) -> Path:
@@ -13,7 +14,7 @@ class ScanConfig:
 
     @property
     def run_dir(self) -> Path:
-        return self.project_root / "data" / "runs" / "test-object"
+        return self.project_root / "data" / "runs" / self.run_name
 
     @property
     def database_path(self) -> Path:

@@ -12,6 +12,7 @@ def main() -> None:
         colmap_executable=Path(
             r"D:\Image-to-3D\COLMAP\COLMAP.bat"
         ),
+        run_name="south_building",
     )
 
     pipeline = ReconstructionPipeline(config)
