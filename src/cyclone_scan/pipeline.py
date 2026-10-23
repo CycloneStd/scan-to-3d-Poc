@@ -39,9 +39,10 @@ class ReconstructionPipeline:
         self.final_glb = self.web_asset_dir / "model.glb"
 
     def validate_inputs(self) -> None:
-        if not self.config.image_dir.is_dir():
-            raise FileNotFoundError(
-                f"Image directory not found: {self.config.image_dir}"
+        if self.config.database_path.exists():
+            raise FileExistsError(
+                f"COLMAP database already exists: {self.config.database_path}. "
+                "Remove the previous run directory before starting again."
             )
 
         images = [
