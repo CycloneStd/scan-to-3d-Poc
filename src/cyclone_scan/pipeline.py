@@ -32,8 +32,9 @@ class ReconstructionPipeline:
         self.web_asset_dir = config.run_dir / "web"
         self.fused_cloud = self.dense_dir / "fused.ply"
         self.mesh_path = self.dense_dir / "mesh.ply"
-        self.textured_mesh_prefix = self.dense_dir / "textured"
-        self.textured_obj = self.dense_dir / "textured.obj"
+        self.textured_mesh_dir = self.dense_dir / "textured"
+        self.textured_mesh = self.textured_mesh_dir / "mesh.ply"
+        self.texture_atlas = self.textured_mesh_dir / "texture.png"
         self.raw_glb = self.web_asset_dir / "model-raw.glb"
         self.final_glb = self.web_asset_dir / "model.glb"
 
@@ -175,7 +176,7 @@ class ReconstructionPipeline:
         self._require_file(self.fused_cloud, "Dense fused point cloud")
 
     def _build_textured_mesh(self) -> None:
-        print("Step 5/7: Meshing and texturing...")
+        print("Step 5/5: Meshing and texturing...")
 
         self.runner.run([
             "poisson_mesher",
@@ -185,14 +186,26 @@ class ReconstructionPipeline:
 
         self._require_file(self.mesh_path, "Poisson mesh")
 
+        self.textured_mesh_dir.mkdir(parents=True, exist_ok=True)
+
         self.runner.run([
             "mesh_texturer",
             "--workspace_path", str(self.dense_dir),
             "--input_path", str(self.mesh_path),
-            "--output_path", str(self.textured_mesh_prefix),
+            "--output_path", str(self.textured_mesh_dir),
         ])
 
-        self._require_file(self.textured_obj, "Textured OBJ mesh")
+        self._require_file(
+            self.textured_mesh,
+            "Textured PLY mesh",
+        )
+        self._require_file(
+            self.texture_atlas,
+            "Texture atlas",
+        )
+
+        print(f"Textured mesh: {self.textured_mesh}")
+        print(f"Texture atlas: {self.texture_atlas}")
 
     def _convert_obj_to_glb(self) -> None:
         print("Step 6/7: Converting textured mesh to GLB...")
