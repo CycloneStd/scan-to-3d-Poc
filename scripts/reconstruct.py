@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -9,17 +10,25 @@ from src.cyclone_scan.pipeline import ReconstructionPipeline
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-
     config = ScanConfig(
-        project_root=project_root,
+        project_root=PROJECT_ROOT,
         colmap_executable=Path(
             r"D:\Image-to-3D\COLMAP\COLMAP.bat"
         ),
-        run_name="south_building",
+        run_name="south-building",
     )
 
-    pipeline = ReconstructionPipeline(config)
+    use_gpu = os.environ.get("CYCLONE_USE_GPU", "1") == "1"
+
+    pipeline = ReconstructionPipeline(
+        config,
+        use_gpu=use_gpu,
+        blender_executable=os.environ.get("BLENDER_EXECUTABLE"),
+        gltf_transform_executable=os.environ.get(
+            "GLTF_TRANSFORM_EXECUTABLE", "gltf-transform"
+        ),
+    )
+
     pipeline.run()
 
 
