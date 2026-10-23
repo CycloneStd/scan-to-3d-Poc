@@ -9,8 +9,13 @@ class ColmapRunner:
 
     def run(self, arguments: list[str]) -> None:
         command = [
-            str(self.executable),
-            *arguments,
+            "cmd.exe",
+            "/d",
+            "/s",
+            "/c",
+            subprocess.list2cmdline(
+                [str(self.executable), *arguments]
+            ),
         ]
 
         subprocess.run(
