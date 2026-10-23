@@ -7,9 +7,12 @@ class ScanConfig:
     project_root: Path
     colmap_executable: Path
     run_name: str = "test-object"
+    input_dir: Path | None = None
 
     @property
     def image_dir(self) -> Path:
+        if self.input_dir is not None:
+            return self.input_dir
         return self.project_root / "data" / "input"
 
     @property
