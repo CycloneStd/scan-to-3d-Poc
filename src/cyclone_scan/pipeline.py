@@ -265,6 +265,7 @@ bpy.ops.export_scene.gltf(
         print(f"Web-ready model: {self.final_glb}")
         print(f"Final file size: {size_mb:.2f} MB")
 
+
     def run(self) -> None:
         self.validate_inputs()
         self.config.prepare_directories()
@@ -272,7 +273,6 @@ bpy.ops.export_scene.gltf(
         self._extract_features()
         self._match_features()
         sparse_model = self._build_sparse_model()
-        self._build_dense_cloud(sparse_model)
-        self._build_textured_mesh()
-        #self._convert_obj_to_glb()
-        #self._optimize_glb()
+
+        verified_model = self.verify_reconstruction()
+        print(f"Sparse reconstruction successful: {verified_model}")
