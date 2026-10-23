@@ -1,4 +1,8 @@
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.cyclone_scan.config import ScanConfig
 from src.cyclone_scan.pipeline import ReconstructionPipeline
@@ -12,6 +16,7 @@ def main() -> None:
         colmap_executable=Path(
             r"D:\Image-to-3D\COLMAP\COLMAP.bat"
         ),
+        run_name="south_building",
     )
 
     pipeline = ReconstructionPipeline(config)

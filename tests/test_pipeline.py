@@ -22,3 +22,25 @@ def test_rejects_insufficient_images(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="At least two"):
         pipeline.validate_inputs()
+
+
+def test_rejects_existing_database(tmp_path: Path) -> None:
+    pipeline = create_pipeline(tmp_path)
+
+    pipeline.config.run_dir.mkdir(parents=True, exist_ok=True)
+    pipeline.config.database_path.touch()
+
+    (pipeline.config.image_dir / "image1.jpg").touch()
+    (pipeline.config.image_dir / "image2.jpg").touch()
+
+    with pytest.raises(FileExistsError, match="COLMAP database already exists"):
+        pipeline.validate_inputs()
+
+
+def test_accepts_two_supported_images(tmp_path: Path) -> None:
+    pipeline = create_pipeline(tmp_path)
+
+    (pipeline.config.image_dir / "image1.jpg").touch()
+    (pipeline.config.image_dir / "image2.png").touch()
+
+    pipeline.validate_inputs()

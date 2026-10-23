@@ -17,9 +17,14 @@ class ColmapRunner:
                 [str(self.executable), *arguments]
             ),
         ]
-
-        subprocess.run(
-            command,
-            check=True,
-            shell=False,
-        )
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                shell=False,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"COLMAP failed with exit code {exc.returncode}. "
+                f"Failed arguments: {arguments}"
+            ) from exc

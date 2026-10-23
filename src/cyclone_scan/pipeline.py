@@ -90,7 +90,29 @@ class ReconstructionPipeline:
             ]
         )
 
-        print(
-            "COLMAP finished. Inspect the sparse output at:",
-            self.config.sparse_dir,
+        model_dir = self.verify_reconstruction()
+        print("Sparse reconstruction Verified Successfully")
+        print(f"Model directory: {model_dir}")
+
+    def verify_reconstruction(self)-> Path: 
+        if not self.config.sparse_dir.is_dir():
+            raise RuntimeError(
+                f"Sparse output directory is missing: "
+                f"{self.config.sparse_dir}"
+            )
+        
+        for model_dir in sorted(self.config.sparse_dir.iterdir()):
+            if not model_dir.is_dir():
+                continue
+
+            required_files = {"cameras.bin", "images.bin", "points3D.bin"}
+
+            if required_files.issubset(
+                {Path.name for path in model_dir.iterdir() if path.is_file()}
+            ):
+                return model_dir
+
+        raise RuntimeError(
+            "COLMAP completed, but no valid sparse model was found. "
+            "Check the image overlap and COLMAP logs."
         )
