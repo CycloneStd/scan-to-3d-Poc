@@ -2,7 +2,12 @@ cat > environment.yml <<'EOF'
 name: cyclone-scan
 channels:
   - conda-forge
-dependancies:
+dependencies:
   - python=3.11
+  - numpy>=1.24
+  - open3d>=0.18.0
+  - trimesh>=4.0.0
+  - pillow>=10.0.0
+  - pytest>=8.0.0
   - pip
 EOF
