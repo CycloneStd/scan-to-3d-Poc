@@ -1,3 +1,4 @@
+
 from pathlib import Path
 import subprocess
 import sys
@@ -13,15 +14,20 @@ class ColmapRunner:
                 f"COLMAP executable was not found at: {self.executable}"
             )
 
-        command = [
-            "cmd.exe",
-            "/d",
-            "/s",
-            "/c",
-            subprocess.list2cmdline([str(self.executable), *arguments]),
-        ]
+        command = [str(self.executable), *arguments]
+
+        # Windows needs cmd.exe when invoking a .bat file.
+        if sys.platform == "win32" and self.executable.suffix.lower() == ".bat":
+            command = [
+                "cmd.exe",
+                "/d",
+                "/s",
+                "/c",
+                subprocess.list2cmdline(command),
+            ]
 
         output_lines: list[str] = []
+
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -43,7 +49,7 @@ class ColmapRunner:
         if process.returncode != 0:
             tail_lines = "".join(output_lines[-20:])
             raise RuntimeError(
-                f"COLMAP failed with exit code {process.returncode} for command: "
-                f"{' '.join(arguments)}\n"
+                f"COLMAP failed with exit code {process.returncode} "
+                f"for command: {' '.join(command)}\n"
                 f"Error summary (last lines):\n{tail_lines}"
             )
