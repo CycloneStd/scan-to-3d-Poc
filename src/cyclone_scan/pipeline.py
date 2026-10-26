@@ -131,6 +131,7 @@ class ReconstructionPipeline:
             "--image_path", str(self.config.image_dir),
             "--ImageReader.single_camera", "1",
             "--FeatureExtraction.use_gpu", self._gpu_flag(),
+            "--FeatureExtraction.gpu_index", "0" if self.use_gpu else "-1",
             "--FeatureExtraction.num_threads", "8",
         ])
 
@@ -140,6 +141,7 @@ class ReconstructionPipeline:
             "exhaustive_matcher",
             "--database_path", str(self.config.database_path),
             "--FeatureMatching.use_gpu", self._gpu_flag(),
+            "--FeatureMatching.gpu_index", "0" if self.use_gpu else "-1",
             "--FeatureMatching.num_threads", "8",
         ])
 
@@ -188,6 +190,7 @@ class ReconstructionPipeline:
             print("Running MVS dense reconstruction (GPU mode)...")
             self.runner.run([
                 "patch_match_stereo",
+                "--PatchMatchStereo.gpu_index", "0",
                 "--workspace_path", str(self.dense_dir),
                 "--workspace_format", "COLMAP",
                 "--PatchMatchStereo.geom_consistency", "true",
