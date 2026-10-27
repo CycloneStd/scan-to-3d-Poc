@@ -246,6 +246,25 @@ def test_textured_obj_requires_material_and_referenced_texture(
     assert pipeline._textured_asset_is_valid()
 
 
+def test_sparse_ply_export_is_reused_after_completion(tmp_path: Path) -> None:
+    pipeline = create_pipeline(tmp_path)
+    model = pipeline.config.sparse_dir / "0"
+    model.mkdir(parents=True)
+    (model / "cameras.bin").write_bytes(struct.pack("<Q", 1))
+    (model / "images.bin").write_bytes(struct.pack("<Q", 1))
+    (model / "points3D.bin").write_bytes(struct.pack("<Q", 1))
+
+    def convert(arguments: list[str], **_kwargs) -> None:
+        output_path = Path(arguments[arguments.index("--output_path") + 1])
+        output_path.write_bytes(b"ply")
+
+    pipeline.runner.run = Mock(side_effect=convert)
+    pipeline._export_sparse_to_ply(model)
+    pipeline._export_sparse_to_ply(model)
+
+    assert pipeline.runner.run.call_count == 1
+
+
 def test_textured_obj_bundle_exports_to_glb(tmp_path: Path) -> None:
     pytest.importorskip("trimesh")
     pipeline = create_pipeline(tmp_path)

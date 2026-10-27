@@ -57,7 +57,7 @@ def test_scan_config_prepare_directories(tmp_path: Path) -> None:
 
 
 def test_scan_config_rejects_invalid_matching_configuration(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="Only sequential matching"):
+    with pytest.raises(ValueError, match="exhaustive matching is not enabled"):
         ScanConfig(
             project_root=tmp_path,
             colmap_executable=Path("COLMAP.bat"),

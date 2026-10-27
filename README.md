@@ -93,8 +93,10 @@ python scripts/reconstruct.py --run-name south-building --stage export
 ```
 
 The COLMAP sequential matcher defaults to an overlap of 5 images and uses no
-matching GPU flags. The installed COLMAP help is inspected before optional
-overlap, thread, feature-extraction, and image-size arguments are passed. Set
+matching GPU flags. `--matching-strategy` selects a COLMAP matcher identifier;
+sequential matching is the default and exhaustive matching is intentionally
+disabled. The installed COLMAP help is inspected before optional overlap,
+thread, feature-extraction, and image-size arguments are passed. Set
 `--use-gpu` to request GPU feature extraction; a build without that capability
 fails clearly. `--num-threads` controls supported COLMAP thread settings.
 

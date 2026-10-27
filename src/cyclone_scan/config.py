@@ -21,10 +21,15 @@ class ScanConfig:
     texture_options: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.matching_strategy != "sequential":
-            raise ValueError(
-                "Only sequential matching is currently supported."
-            )
+        if (
+            not self.matching_strategy
+            or not self.matching_strategy.isascii()
+            or not self.matching_strategy[0].isalpha()
+            or not self.matching_strategy.replace("_", "").isalnum()
+        ):
+            raise ValueError("matching_strategy must be a COLMAP matcher identifier")
+        if self.matching_strategy == "exhaustive":
+            raise ValueError("exhaustive matching is not enabled for this pipeline")
         if self.sequential_overlap <= 0:
             raise ValueError("sequential_overlap must be positive")
         if self.num_threads <= 0:

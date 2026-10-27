@@ -100,6 +100,7 @@ def parse_args() -> argparse.Namespace:
         default="jpg",
     )
     parser.add_argument("--jpeg-quality", type=int, default=95)
+    parser.add_argument("--matching-strategy", default="sequential")
     parser.add_argument("--sequential-overlap", type=int, default=5)
     parser.add_argument("--num-threads", type=int, default=8)
     parser.add_argument(
@@ -160,6 +161,7 @@ def main() -> None:
         densify_point_cloud_executable=args.densify_point_cloud,
         reconstruct_mesh_executable=args.reconstruct_mesh,
         texture_mesh_executable=args.texture_mesh,
+        matching_strategy=args.matching_strategy,
         sequential_overlap=args.sequential_overlap,
         num_threads=args.num_threads,
         max_image_size=args.max_image_dimension,

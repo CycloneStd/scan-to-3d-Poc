@@ -572,13 +572,9 @@ class ReconstructionPipeline:
 
     def _match_features(self) -> None:
         print("Step 2/7: Matching image features...")
-        if self.config.matching_strategy != "sequential":
-            raise ValueError(
-                "Only the sequential matching strategy is implemented; "
-                f"received {self.config.matching_strategy!r}."
-            )
         if not self._database_has_features():
             raise RuntimeError("Feature extraction must complete before matching.")
+        matcher_command = f"{self.config.matching_strategy}_matcher"
         input_signature = self._artifact_signature(
             (self.config.image_dir,),
             {
@@ -591,16 +587,19 @@ class ReconstructionPipeline:
 
         def match() -> None:
             arguments = [
-                "sequential_matcher",
+                matcher_command,
                 "--database_path", str(self.config.database_path),
             ]
-            help_text = self._colmap_help("sequential_matcher")
+            help_text = self._colmap_help(matcher_command)
             overlap_option = "--SequentialMatching.overlap"
-            if overlap_option in help_text:
+            if (
+                self.config.matching_strategy == "sequential"
+                and overlap_option in help_text
+            ):
                 arguments.extend(
                     [overlap_option, str(self.config.sequential_overlap)]
                 )
-            else:
+            elif self.config.matching_strategy == "sequential":
                 print(
                     "Installed COLMAP does not expose sequential overlap; "
                     "using its default."
@@ -672,7 +671,19 @@ class ReconstructionPipeline:
         print("Step 4/7: Exporting sparse points to PLY...")
         ply_output = sparse_model / "points.ply"
         input_signature = self._artifact_signature(
-            (sparse_model,), {"export_type": "PLY"}
+            tuple(
+                path
+                for filename in (
+                    "cameras.bin",
+                    "images.bin",
+                    "points3D.bin",
+                    "cameras.txt",
+                    "images.txt",
+                    "points3D.txt",
+                )
+                if (path := sparse_model / filename).is_file()
+            ),
+            {"export_type": "PLY"},
         )
 
         def export() -> None:
