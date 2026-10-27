@@ -1,7 +1,14 @@
 import argparse
+import os
 from pathlib import Path
-import subprocess
+import shutil
+import sys
 import numpy as np
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.cyclone_scan.runner import ColmapRunner
 
 try:
     import open3d as o3d
@@ -11,7 +18,13 @@ except ImportError as exc:
         "Install with: pip install open3d"
     ) from exc
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+def find_default_colmap() -> Path:
+    executable = os.environ.get("COLMAP_EXECUTABLE", "colmap")
+    if Path(executable).is_file():
+        return Path(executable)
+    resolved = shutil.which(executable)
+    return Path(resolved or executable)
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=PROJECT_ROOT / "data/runs/south-building/sparse/0/mesh.ply",
         help="Path for generated mesh.ply output",
+    )
+    parser.add_argument(
+        "--colmap",
+        type=Path,
+        default=find_default_colmap(),
+        help="Path to COLMAP executable or COLMAP.bat",
     )
     parser.add_argument(
         "--depth",
@@ -55,14 +74,12 @@ def main() -> None:
         bin_model = sparse_dir / "points3D.bin"
         if bin_model.exists():
             print(f"{input_path} not found. Attempting COLMAP model_converter conversion...")
-            colmap_cmd = [
-                r"D:\Image-to-3D\COLMAP\COLMAP.bat",
+            ColmapRunner(args.colmap).run([
                 "model_converter",
                 "--input_path", str(sparse_dir),
                 "--output_path", str(input_path),
                 "--output_type", "PLY",
-            ]
-            subprocess.run(colmap_cmd, check=True)
+            ])
 
     print(f"Loading sparse point cloud from {input_path}...")
     cloud = o3d.io.read_point_cloud(str(input_path))
