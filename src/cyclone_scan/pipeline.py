@@ -72,18 +72,27 @@ class ReconstructionPipeline:
             )
 
         if self.config.database_path.exists():
-            saved_signature = self._metadata["stages"].get(
-                "feature_extraction", {}
-            ).get("input_signature")
+            saved_stage = self._metadata["stages"].get("feature_extraction", {})
+            saved_signature = saved_stage.get("input_signature")
+            # `input_signature` is a composite hash (images + GPU/thread
+            # settings), so it is never equal to the plain image signature.
+            # Accept a match on either the dedicated image signature or the
+            # composite signature produced by the same settings.
+            accepted_signatures = {
+                self._image_input_signature(),
+                self._feature_extraction_signature(),
+            }
+            saved_image_signature = saved_stage.get("image_signature")
+            signature_matches = (
+                saved_signature in accepted_signatures
+                or saved_image_signature == self._image_input_signature()
+            )
             if not self._database_has_features() and not self.overwrite:
                 raise FileExistsError(
                     f"COLMAP database already exists but has no reusable "
                     f"features: {self.config.database_path}"
                 )
-            if (
-                self._database_has_features()
-                and saved_signature != self._image_input_signature()
-            ):
+            if self._database_has_features() and not signature_matches:
                 raise FileExistsError(
                     f"COLMAP database belongs to a different or unverified "
                     f"image set: {self.config.database_path}. Use a new "
@@ -529,9 +538,8 @@ class ReconstructionPipeline:
                 return image_count >= 2 and registered_images > 0 and point_count > 0
         return False
 
-    def _extract_features(self) -> None:
-        print("Step 1/7: Extracting image features...")
-        input_signature = self._artifact_signature(
+    def _feature_extraction_signature(self) -> str:
+        return self._artifact_signature(
             (self.config.image_dir,),
             {
                 "images": self._image_input_signature(),
@@ -539,6 +547,13 @@ class ReconstructionPipeline:
                 "threads": self.config.num_threads,
             },
         )
+
+    def _extract_features(self) -> None:
+        print("Step 1/7: Extracting image features...")
+        input_signature = self._feature_extraction_signature()
+        self._metadata["stages"].setdefault("feature_extraction", {})[
+            "image_signature"
+        ] = self._image_input_signature()
 
         def extract() -> None:
             command = "feature_extractor"
