@@ -150,68 +150,173 @@ remains a separate manual step.
 
 ## Google Colab
 
-Use Colab as an execution environment; keep the source and changes in GitHub.
-Mount Drive in the notebook (not in the reconstruction library), clone or
-checkout the feature branch, install Python dependencies, and make compatible
-COLMAP/OpenMVS binaries available on `PATH` or pass their paths:
+The steps below run the reconstruction in Colab and save results to Google
+Drive. Your local Conda environment and desktop Blender are not available
+inside Colab; you can use desktop Blender later to inspect the downloaded OBJ.
 
 ```python
 from google.colab import drive
 drive.mount("/content/drive")
 ```
 
+### 1. Prepare Drive and install the project
+
+Upload either a folder of overlapping photos (for example
+`MyDrive/scan-input/images/`) or a video (for example
+`MyDrive/scan-input/scene.mp4`) to Google Drive. The image folder must contain
+at least two supported images. In Colab, choose **Runtime → Change runtime
+type → T4 GPU** if available.
+
+The pipeline has been merged into `main`. Run this cell to get the code,
+install Colab's Python packages, and run the unit tests:
+
 ```bash
-!git clone https://github.com/CycloneStd/scan-to-3d-Poc.git /content/scan-to-3d-Poc
+!git clone --branch main https://github.com/CycloneStd/scan-to-3d-Poc.git /content/scan-to-3d-Poc
 %cd /content/scan-to-3d-Poc
-!git fetch origin feat/hybrid-colmap-openmvs
-!git switch --track -c feat/hybrid-colmap-openmvs origin/feat/hybrid-colmap-openmvs
-!python -m pip install opencv-python pytest trimesh
+!python -m pip install opencv-python-headless pillow trimesh pytest
+!python -m pytest -q
 ```
 
-Install/locate compatible binaries for the current Colab runtime and verify
-their help output and GPU availability before starting. Avoid assuming that a
-binary package or installation command remains compatible across runtime
-images. Then run against a Drive path and persist the run directory to Drive:
+Your local Conda environment is not used in Colab.
+
+### 2. Install COLMAP and OpenMVS
+
+These are command-line programs, separate from the Python packages above.
+Install [COLMAP from Conda-forge](https://anaconda.org/conda-forge/colmap) and
+download the official [OpenMVS Ubuntu x64 release](https://github.com/cdcseacave/openMVS/releases/tag/v2.4.0).
+Colab itself does not start with Conda installed, so this cell uses the small
+`micromamba` executable to create a separate environment for COLMAP:
+
+```bash
+!mkdir -p /content/micromamba
+!curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /content/micromamba bin/micromamba
+!MAMBA_ROOT_PREFIX=/content/mamba-root /content/micromamba/bin/micromamba create -y -p /content/recon-env -c conda-forge colmap
+!sudo apt-get update -qq
+!sudo apt-get install -y unzip
+!wget -q --show-progress https://github.com/cdcseacave/openMVS/releases/download/v2.4.0/OpenMVS_Ubuntu_x64.zip -O /content/OpenMVS_Ubuntu_x64.zip
+!mkdir -p /content/openmvs
+!unzip -q -o /content/OpenMVS_Ubuntu_x64.zip -d /content/openmvs
+```
+
+Check that COLMAP starts:
+
+```bash
+!/content/recon-env/bin/colmap -h
+!nvidia-smi
+```
+
+Find and test all four OpenMVS programs. This Python cell also sets the library
+search path for libraries shipped inside the OpenMVS archive and verifies that
+the executables start. Run it again after reconnecting to a new Colab runtime:
+
+```python
+import os
+import subprocess
+from pathlib import Path
+
+openmvs_root = Path("/content/openmvs")
+openmvs_tools = {}
+for name in ("InterfaceCOLMAP", "DensifyPointCloud", "ReconstructMesh", "TextureMesh"):
+    matches = [
+        path
+        for path in openmvs_root.rglob(name)
+        if path.is_file() and os.access(path, os.X_OK)
+    ]
+    if not matches:
+        raise FileNotFoundError(f"{name} was not found in the OpenMVS archive")
+    openmvs_tools[name] = matches[0]
+    print(f"{name}: {matches[0]}")
+
+library_dirs = sorted(
+    {str(path.parent) for path in openmvs_root.rglob("*.so*") if path.is_file()}
+)
+existing_library_path = os.environ.get("LD_LIBRARY_PATH", "")
+os.environ["LD_LIBRARY_PATH"] = ":".join(
+    library_dirs + ([existing_library_path] if existing_library_path else [])
+)
+
+for name, executable in openmvs_tools.items():
+    result = subprocess.run(
+        [str(executable), "-h"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if "available options:" not in result.stdout.lower():
+        raise RuntimeError(f"{name} could not start:\n{result.stdout[-3000:]}")
+    print(f"{name}: help displayed (exit code {result.returncode})")
+```
+
+OpenMVS may return a nonzero exit code for its help option even when it started
+correctly. This check therefore looks for the actual help text instead of
+requiring exit code zero. If the check reports that help text is missing, do
+not continue; the output should help identify a missing shared library or an
+incompatible binary. Colab sessions are temporary, so install COLMAP and
+download OpenMVS again after a runtime reset.
+
+### 3. First run: use images
+
+Set `--input-dir` to the Drive folder containing your photos. Do not pass
+`--input-video` for an image run:
 
 ```bash
 !python scripts/reconstruct.py \
-  --run-name south-building \
+  --run-name first-image-test \
   --project-root /content/drive/MyDrive/scan-to-3d-output \
-  --input-video /content/drive/MyDrive/south-building.mp4 \
-  --colmap /usr/local/bin/colmap \
-  --interface-colmap /usr/local/bin/InterfaceCOLMAP \
-  --densify-point-cloud /usr/local/bin/DensifyPointCloud \
-  --reconstruct-mesh /usr/local/bin/ReconstructMesh \
-  --texture-mesh /usr/local/bin/TextureMesh
+  --input-dir /content/drive/MyDrive/scan-input/images \
+  --colmap /content/recon-env/bin/colmap \
+  --interface-colmap "$(find /content/openmvs -type f -name InterfaceCOLMAP -print -quit)" \
+  --densify-point-cloud "$(find /content/openmvs -type f -name DensifyPointCloud -print -quit)" \
+  --reconstruct-mesh "$(find /content/openmvs -type f -name ReconstructMesh -print -quit)" \
+  --texture-mesh "$(find /content/openmvs -type f -name TextureMesh -print -quit)"
 ```
 
-`--project-root` places all run data, logs, and metadata on Drive while source
-code stays checked out under `/content`. Pass the same project root and run
-name after a disconnect, then invoke `--stage dense`, `--stage texture`, or
-`--stage export` to continue from the latest validated stage. The under-15-
-minute T4 goal is an optimization target only; no runtime claim is made without
-a measured comparable run.
+This runs all stages. Start with a small set of good, overlapping photos. The
+run's files are saved in
+`/content/drive/MyDrive/scan-to-3d-output/data/runs/first-image-test/`.
 
-### Colab integration procedure
+### 4. Later run: use video
 
-Use a small representative capture after confirming that all four OpenMVS
-executables and COLMAP are available. Run each stage with the same project
-root, run name, and source; the video manifest reuses the already extracted
-frames:
+When you are ready to try video, upload it to Drive and use `--input-video`
+instead of `--input-dir`. Use a different run name to keep the image and video
+results separate:
 
 ```bash
-!python -m pytest -q
-!python scripts/reconstruct.py --project-root /content/drive/MyDrive/scan-to-3d-output --run-name colab-check --input-video /content/drive/MyDrive/sample.mp4 --stage sparse --colmap /usr/local/bin/colmap --interface-colmap /usr/local/bin/InterfaceCOLMAP --densify-point-cloud /usr/local/bin/DensifyPointCloud --reconstruct-mesh /usr/local/bin/ReconstructMesh --texture-mesh /usr/local/bin/TextureMesh
-!python scripts/reconstruct.py --project-root /content/drive/MyDrive/scan-to-3d-output --run-name colab-check --input-video /content/drive/MyDrive/sample.mp4 --stage dense --colmap /usr/local/bin/colmap --interface-colmap /usr/local/bin/InterfaceCOLMAP --densify-point-cloud /usr/local/bin/DensifyPointCloud --reconstruct-mesh /usr/local/bin/ReconstructMesh --texture-mesh /usr/local/bin/TextureMesh
-!python scripts/reconstruct.py --project-root /content/drive/MyDrive/scan-to-3d-output --run-name colab-check --stage texture --colmap /usr/local/bin/colmap --interface-colmap /usr/local/bin/InterfaceCOLMAP --densify-point-cloud /usr/local/bin/DensifyPointCloud --reconstruct-mesh /usr/local/bin/ReconstructMesh --texture-mesh /usr/local/bin/TextureMesh
-!python scripts/reconstruct.py --project-root /content/drive/MyDrive/scan-to-3d-output --run-name colab-check --stage export --colmap /usr/local/bin/colmap --interface-colmap /usr/local/bin/InterfaceCOLMAP --densify-point-cloud /usr/local/bin/DensifyPointCloud --reconstruct-mesh /usr/local/bin/ReconstructMesh --texture-mesh /usr/local/bin/TextureMesh
+!python scripts/reconstruct.py \
+  --run-name first-video-test \
+  --project-root /content/drive/MyDrive/scan-to-3d-output \
+  --input-video /content/drive/MyDrive/scan-input/scene.mp4 \
+  --target-fps 3 \
+  --max-image-dimension 1920 \
+  --colmap /content/recon-env/bin/colmap \
+  --interface-colmap "$(find /content/openmvs -type f -name InterfaceCOLMAP -print -quit)" \
+  --densify-point-cloud "$(find /content/openmvs -type f -name DensifyPointCloud -print -quit)" \
+  --reconstruct-mesh "$(find /content/openmvs -type f -name ReconstructMesh -print -quit)" \
+  --texture-mesh "$(find /content/openmvs -type f -name TextureMesh -print -quit)"
 ```
 
-Confirm nonempty stage outputs, successful statuses and timings in
-`data/runs/colab-check/metadata.json`, inspect the saved logs, and open
-`dense/textured/model.obj` in Blender. Run `--stage dense` once more to verify
-that valid dense outputs are resumed rather than recomputed. This procedure
-has not been run in Colab in this development environment.
+Video is sampled at 3 frames per second by default. Frames and a manifest are
+saved in the run folder, and the same source/settings can reuse them when
+resuming.
+
+### 5. Open the result in Blender
+
+In Drive, open the run's `dense/textured/` folder and download the whole folder
+so the OBJ, MTL, and texture images stay together. On your computer, open
+`model.obj` in your Blender application and check that its textures appear.
+Colab cannot use the Blender application installed on your computer.
+
+### If Colab disconnects
+
+Files under `/content` are temporary, but this guide stores run outputs on
+Drive. After reconnecting, mount Drive again, clone the repository and install
+Python packages as above. COLMAP and OpenMVS must also be made available again
+in the new runtime. Rerun the same command with the same project root, run
+name, and input path; the pipeline reuses completed stages when their outputs
+still validate. Use a new run name if you change the input or video sampling
+settings. Do not use `--overwrite` unless you intend to replace incomplete
+outputs or extracted frames.
 
 ## Validation status and limitations
 

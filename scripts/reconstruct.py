@@ -100,9 +100,34 @@ def parse_args() -> argparse.Namespace:
         default="jpg",
     )
     parser.add_argument("--jpeg-quality", type=int, default=95)
-    parser.add_argument("--matching-strategy", default="sequential")
+    parser.add_argument(
+        "--matching-strategy",
+        default=None,
+        help=(
+            "COLMAP matcher identifier. Default: 'exhaustive' for photo "
+            "folders (unordered photos) and 'sequential' for video frames."
+        ),
+    )
     parser.add_argument("--sequential-overlap", type=int, default=5)
     parser.add_argument("--num-threads", type=int, default=8)
+    parser.add_argument(
+        "--no-refine",
+        action="store_true",
+        default=False,
+        help="Skip the OpenMVS RefineMesh stage (faster, less detailed)",
+    )
+    parser.add_argument(
+        "--refine-mesh",
+        type=Path,
+        default=os.environ.get("REFINE_MESH_EXECUTABLE", "RefineMesh"),
+        help="Path to OpenMVS RefineMesh",
+    )
+    parser.add_argument(
+        "--refine-mesh-option",
+        action="append",
+        default=[],
+        help="Replace default RefineMesh arguments; repeat per token",
+    )
     parser.add_argument(
         "--densify-option",
         action="append",
@@ -152,6 +177,20 @@ def main() -> None:
     if args.input_video:
         input_dir = args.project_root / "data" / "runs" / run_name / "frames"
 
+    matching_strategy = args.matching_strategy or (
+        "sequential" if args.input_video else "exhaustive"
+    )
+    optional_options = {
+        name: tuple(values)
+        for name, values in (
+            ("densify_options", args.densify_option),
+            ("reconstruct_mesh_options", args.reconstruct_mesh_option),
+            ("refine_mesh_options", args.refine_mesh_option),
+            ("texture_options", args.texture_option),
+        )
+        if values
+    }
+
     config = ScanConfig(
         project_root=args.project_root,
         colmap_executable=args.colmap,
@@ -160,14 +199,14 @@ def main() -> None:
         interface_colmap_executable=args.interface_colmap,
         densify_point_cloud_executable=args.densify_point_cloud,
         reconstruct_mesh_executable=args.reconstruct_mesh,
+        refine_mesh_executable=args.refine_mesh,
+        refine_mesh=not args.no_refine,
         texture_mesh_executable=args.texture_mesh,
-        matching_strategy=args.matching_strategy,
+        matching_strategy=matching_strategy,
         sequential_overlap=args.sequential_overlap,
         num_threads=args.num_threads,
         max_image_size=args.max_image_dimension,
-        densify_options=tuple(args.densify_option),
-        reconstruct_mesh_options=tuple(args.reconstruct_mesh_option),
-        texture_options=tuple(args.texture_option),
+        **optional_options,
     )
 
     pipeline = ReconstructionPipeline(

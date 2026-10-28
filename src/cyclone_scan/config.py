@@ -1,6 +1,16 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+# Full-resolution dense reconstruction (images are already capped by
+# ``max_image_size`` during undistortion).
+DEFAULT_DENSIFY_OPTIONS = ("--resolution-level", "0")
+# Slightly stronger Laplacian smoothing than OpenMVS's default (2).
+DEFAULT_RECONSTRUCT_MESH_OPTIONS = ("--smooth", "3")
+# Photometric refinement recovers fine detail and removes surface noise.
+DEFAULT_REFINE_MESH_OPTIONS = ("--scales", "2", "--resolution-level", "1")
+# Full-resolution texture projection.
+DEFAULT_TEXTURE_OPTIONS = ("--resolution-level", "0")
+
 
 @dataclass
 class ScanConfig:
@@ -16,9 +26,13 @@ class ScanConfig:
     sequential_overlap: int = 5
     num_threads: int = 8
     max_image_size: int = 1920
-    densify_options: tuple[str, ...] = ()
-    reconstruct_mesh_options: tuple[str, ...] = ()
-    texture_options: tuple[str, ...] = ()
+    refine_mesh_executable: str | Path = "RefineMesh"
+    refine_mesh: bool = True
+    # Quality-oriented defaults. Supplying a non-empty tuple replaces them.
+    densify_options: tuple[str, ...] = DEFAULT_DENSIFY_OPTIONS
+    reconstruct_mesh_options: tuple[str, ...] = DEFAULT_RECONSTRUCT_MESH_OPTIONS
+    refine_mesh_options: tuple[str, ...] = DEFAULT_REFINE_MESH_OPTIONS
+    texture_options: tuple[str, ...] = DEFAULT_TEXTURE_OPTIONS
 
     def __post_init__(self) -> None:
         if (
@@ -28,8 +42,6 @@ class ScanConfig:
             or not self.matching_strategy.replace("_", "").isalnum()
         ):
             raise ValueError("matching_strategy must be a COLMAP matcher identifier")
-        if self.matching_strategy == "exhaustive":
-            raise ValueError("exhaustive matching is not enabled for this pipeline")
         if self.sequential_overlap <= 0:
             raise ValueError("sequential_overlap must be positive")
         if self.num_threads <= 0:
@@ -74,6 +86,14 @@ class ScanConfig:
     @property
     def mesh_scene(self) -> Path:
         return self.openmvs_dir / "scene_mesh.mvs"
+
+    @property
+    def refined_mesh_scene(self) -> Path:
+        return self.openmvs_dir / "scene_mesh_refine.mvs"
+
+    @property
+    def texture_input_scene(self) -> Path:
+        return self.refined_mesh_scene if self.refine_mesh else self.mesh_scene
 
     @property
     def textured_dir(self) -> Path:

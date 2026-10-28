@@ -57,9 +57,22 @@ def test_scan_config_prepare_directories(tmp_path: Path) -> None:
 
 
 def test_scan_config_rejects_invalid_matching_configuration(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="exhaustive matching is not enabled"):
+    with pytest.raises(ValueError, match="matcher identifier"):
         ScanConfig(
             project_root=tmp_path,
             colmap_executable=Path("COLMAP.bat"),
-            matching_strategy="exhaustive",
+            matching_strategy="bad strategy!",
         )
+
+
+def test_scan_config_allows_exhaustive_matching_and_refined_texture_input(
+    tmp_path: Path,
+) -> None:
+    config = ScanConfig(
+        project_root=tmp_path,
+        colmap_executable=Path("COLMAP.bat"),
+        matching_strategy="exhaustive",
+    )
+    assert config.texture_input_scene == config.refined_mesh_scene
+    config.refine_mesh = False
+    assert config.texture_input_scene == config.mesh_scene
