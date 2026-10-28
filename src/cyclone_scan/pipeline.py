@@ -777,7 +777,9 @@ class ReconstructionPipeline:
             self._run_external(
                 self.config.interface_colmap_executable,
                 [
-                    "--input-file", str(self.dense_dir / "sparse"),
+                    # InterfaceCOLMAP expects the undistorted workspace root and
+                    # looks for its own "sparse/" sub-folder.
+                    "--input-file", str(self.dense_dir),
                     "--output-file", str(self.config.openmvs_scene),
                     "--image-folder", str(self.dense_dir / "images"),
                 ],
