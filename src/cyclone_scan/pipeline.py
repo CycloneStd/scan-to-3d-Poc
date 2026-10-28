@@ -105,7 +105,9 @@ class ReconstructionPipeline:
                     )
                 }
                 counts = {}
-                for table in ("images", "keypoints", "matches"):
+                for table in (
+                    "images", "keypoints", "matches", "two_view_geometries"
+                ):
                     if table not in tables:
                         counts[table] = 0
                         continue
@@ -113,9 +115,12 @@ class ReconstructionPipeline:
                         row[1]
                         for row in database.execute(f"PRAGMA table_info({table})")
                     }
-                    if table == "matches" and {"rows", "cols"} <= columns:
+                    if (
+                        table in {"matches", "two_view_geometries"}
+                        and {"rows", "cols"} <= columns
+                    ):
                         query = (
-                            "SELECT COUNT(*) FROM matches "
+                            f"SELECT COUNT(*) FROM {table} "
                             "WHERE rows > 0 AND cols > 0"
                         )
                     elif table == "keypoints" and "rows" in columns:
@@ -135,7 +140,11 @@ class ReconstructionPipeline:
 
     def _database_has_matches(self) -> bool:
         counts = self._database_counts()
-        return self._database_has_features() and counts["matches"] > 0
+        # Recent COLMAP releases no longer fill the raw `matches` table and
+        # keep only geometrically verified pairs in `two_view_geometries`.
+        return self._database_has_features() and (
+            counts["matches"] > 0 or counts["two_view_geometries"] > 0
+        )
 
     def _image_input_signature(self) -> str:
         image_stats = [
