@@ -1,0 +1,39 @@
+{
+  "file": "data\\runs\\south-building\\sparse\\0\\delaunay_mesh.ply",
+  "bytes": 1452393,
+  "type": "Trimesh",
+  "vertices": 38241,
+  "finite": true,
+  "bbox_min": [
+    -9.661762237548828,
+    -18.71417808532715,
+    -38.84223556518555
+  ],
+  "bbox_max": [
+    12.977913856506348,
+    7.770132541656494,
+    18.569913864135742
+  ],
+  "extent": [
+    22.639676094055176,
+    26.484310626983643,
+    57.41214942932129
+  ],
+  "centroid": [
+    -0.7474293461100019,
+    -0.4927260423912014,
+    0.44675161374681294
+  ],
+  "distance_of_centroid_from_origin": 1.000508163216224,
+  "faces": 76409,
+  "index_in_range": true,
+  "degenerate_faces": 0,
+  "surface_area": 165.71248586881086,
+  "median_edge_length": 0.024483995543586927,
+  "connected_components": 16,
+  "watertight": false,
+  "winding_consistent": true,
+  "has_vertex_colors": false,
+  "visual_kind": null,
+  "has_uv": false
+}
