@@ -609,6 +609,14 @@ class ReconstructionPipeline:
                 arguments.extend(
                     [threads_option, str(self.config.num_threads)]
                 )
+            if self.use_gpu:
+                for gpu_option in (
+                    "--FeatureMatching.use_gpu",
+                    "--SiftMatching.use_gpu",
+                ):
+                    if gpu_option in help_text:
+                        arguments.extend([gpu_option, "1"])
+                        break
             self.runner.run(arguments, log_path=self._log_path())
 
         self._run_stage(
@@ -834,7 +842,39 @@ class ReconstructionPipeline:
         )
         self._require_file(self.config.mesh_scene, "OpenMVS mesh scene")
         print(f"OpenMVS mesh scene generated: {self.config.mesh_scene}")
-        return self.config.mesh_scene
+        if self.config.refine_mesh:
+            self._refine_mesh()
+        return self.config.texture_input_scene
+
+    def _refine_mesh(self) -> None:
+        print("Refining mesh surface (smoothing and detail recovery)...")
+        refine_signature = self._artifact_signature(
+            (self.config.mesh_scene,), self.config.refine_mesh_options
+        )
+
+        def refine() -> None:
+            self._validate_openmvs_options(
+                self.config.refine_mesh_executable,
+                ("--output-file", *self.config.refine_mesh_options),
+            )
+            self._run_external(
+                self.config.refine_mesh_executable,
+                [
+                    str(self.config.mesh_scene),
+                    "--output-file", str(self.config.refined_mesh_scene),
+                    *self.config.refine_mesh_options,
+                ],
+            )
+
+        self._run_stage(
+            "mesh_refinement",
+            refine,
+            lambda: self.config.refined_mesh_scene.is_file()
+            and self.config.refined_mesh_scene.stat().st_size > 0,
+            (self.config.refined_mesh_scene,),
+            input_signature=refine_signature,
+        )
+        self._require_file(self.config.refined_mesh_scene, "Refined mesh scene")
 
     def _textured_asset_is_valid(self) -> bool:
         obj_path = self.config.textured_obj
@@ -887,8 +927,9 @@ class ReconstructionPipeline:
     def _build_textured_mesh(self) -> None:
         print("Step 6/7: Texturing surface mesh...")
         self.textured_mesh_dir.mkdir(parents=True, exist_ok=True)
+        texture_scene = self.config.texture_input_scene
         input_signature = self._artifact_signature(
-            (self.config.mesh_scene,), self.config.texture_options
+            (texture_scene,), self.config.texture_options
         )
 
         def texture() -> None:
@@ -903,7 +944,7 @@ class ReconstructionPipeline:
             self._run_external(
                 self.config.texture_mesh_executable,
                 [
-                    str(self.config.mesh_scene),
+                    str(texture_scene),
                     "--output-file", str(self.config.textured_obj_base),
                     "--export-type", "obj",
                     *self.config.texture_options,
@@ -981,6 +1022,39 @@ if not any(obj.data.materials for obj in mesh_objects):
             input_signature=input_signature,
         )
 
+    @staticmethod
+    def _apply_smooth_normals(geometry: object) -> None:
+        """Attach area-weighted smooth vertex normals to a triangle mesh.
+
+        OpenMVS OBJ files carry no normals, so glTF viewers fall back to flat
+        shading and the surface looks faceted. Vertices duplicated along UV
+        seams are welded by position before averaging so no lighting seams
+        appear along texture island borders.
+        """
+        import numpy as np
+
+        faces = getattr(geometry, "faces", None)
+        vertices = getattr(geometry, "vertices", None)
+        if faces is None or vertices is None or len(faces) == 0:
+            return
+        vertices = np.asarray(vertices, dtype=np.float64)
+        faces = np.asarray(faces)
+        triangles = vertices[faces]
+        # Cross product magnitude is proportional to triangle area.
+        face_normals = np.cross(
+            triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
+        )
+        _, inverse = np.unique(
+            np.round(vertices, 7), axis=0, return_inverse=True
+        )
+        inverse = np.asarray(inverse).reshape(-1)
+        accumulated = np.zeros((inverse.max() + 1, 3), dtype=np.float64)
+        for corner in range(3):
+            np.add.at(accumulated, inverse[faces[:, corner]], face_normals)
+        lengths = np.linalg.norm(accumulated, axis=1, keepdims=True)
+        lengths[lengths == 0] = 1.0
+        geometry.vertex_normals = (accumulated / lengths)[inverse]
+
     def _export_glb_impl(self) -> Path:
         print("Step 7/7: Converting to web-ready GLB model...")
         self.web_asset_dir.mkdir(parents=True, exist_ok=True)
@@ -993,6 +1067,13 @@ if not any(obj.data.materials for obj in mesh_objects):
         try:
             import trimesh
             mesh = trimesh.load(str(self.config.textured_obj))
+            geometries = (
+                list(mesh.geometry.values())
+                if isinstance(mesh, trimesh.Scene)
+                else [mesh]
+            )
+            for geometry in geometries:
+                self._apply_smooth_normals(geometry)
             target_path = self.raw_glb if shutil.which(self.gltf_transform_executable) else self.final_glb
             mesh.export(str(target_path))
             self._require_file(target_path, "GLB export")
@@ -1035,9 +1116,10 @@ bpy.ops.export_scene.gltf(
                     "optimize",
                     str(self.raw_glb),
                     str(self.final_glb),
-                    "--compress", "draco",
+                    "--compress", "meshopt",
+                    "--simplify", "false",
                     "--texture-compress", "webp",
-                    "--texture-size", "1024",
+                    "--texture-size", "4096",
                 ],
             )
             print(f"Optimized with gltf-transform: {self.final_glb}")
@@ -1170,9 +1252,10 @@ bpy.ops.export_scene.gltf(
                 return
 
         if stage in {"all", "texture"}:
-            if not self.config.mesh_scene.is_file():
+            if not self.config.texture_input_scene.is_file():
                 raise FileNotFoundError(
-                    f"OpenMVS mesh scene is required: {self.config.mesh_scene}"
+                    "OpenMVS mesh scene is required: "
+                    f"{self.config.texture_input_scene}"
                 )
             self._build_textured_mesh()
             if stage == "texture":

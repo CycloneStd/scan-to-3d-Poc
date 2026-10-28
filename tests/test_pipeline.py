@@ -296,3 +296,12 @@ def test_textured_obj_bundle_exports_to_glb(tmp_path: Path) -> None:
     assert output.is_file()
     assert output.stat().st_size > 0
     assert (pipeline.config.web_dir / "index.html").is_file()
+
+def test_smooth_normals_are_welded_across_uv_seams() -> None:
+    trimesh = pytest.importorskip('trimesh')
+    import numpy as np
+    vertices = [[0,0,0],[1,0,0],[0,1,0],[1,0,0],[1,1,0],[0,1,0]]
+    mesh = trimesh.Trimesh(vertices=vertices, faces=[[0,1,2],[3,4,5]], process=False)
+    ReconstructionPipeline._apply_smooth_normals(mesh)
+    assert np.allclose(mesh.vertex_normals, [0,0,1])
+
