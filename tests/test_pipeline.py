@@ -48,6 +48,18 @@ def test_pipeline_config_rejects_bad_options(tmp_path: Path, values: dict) -> No
         create_config(tmp_path, **values)
 
 
+def test_headless_subprocess_environment_removes_opencv_qt_paths(monkeypatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM_PLUGIN_PATH", "/opencv/qt/plugins")
+    monkeypatch.setenv("QT_QPA_FONTDIR", "/opencv/qt/fonts")
+    monkeypatch.setenv("KEEP_ME", "value")
+
+    environment = SplatPipeline._headless_subprocess_environment()
+
+    assert "QT_QPA_PLATFORM_PLUGIN_PATH" not in environment
+    assert "QT_QPA_FONTDIR" not in environment
+    assert environment["KEEP_ME"] == "value"
+
+
 def test_image_input_stages_reuses_and_rejects_mixed_inputs(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

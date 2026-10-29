@@ -135,6 +135,13 @@ class SplatPipeline:
             ]
         return command
 
+    @staticmethod
+    def _headless_subprocess_environment() -> dict[str, str]:
+        environment = os.environ.copy()
+        for name in ("QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QPA_FONTDIR"):
+            environment.pop(name, None)
+        return environment
+
     def _stage(
         self,
         name: str,
@@ -202,6 +209,7 @@ class SplatPipeline:
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
+                env=self._headless_subprocess_environment(),
             )
             if process.stdout is not None:
                 for line in process.stdout:
@@ -231,6 +239,7 @@ class SplatPipeline:
             capture_output=True,
             text=True,
             check=False,
+            env=self._headless_subprocess_environment(),
         )
         text = f"{result.stdout}\n{result.stderr}"
         if not text.strip():

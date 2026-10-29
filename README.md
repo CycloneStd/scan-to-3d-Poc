@@ -16,6 +16,9 @@ are removed; they are not alternate ways to run this project.
 - FFmpeg and ffprobe on `PATH` when using a video.
 - At least two overlapping photos, or a video that contains overlapping views.
 
+The CLI removes OpenCV's Qt plugin environment variables from subprocesses so
+they do not interfere with headless COLMAP commands in Colab.
+
 The 7,000-step default is a starting point, not a 15-minute guarantee. Actual
 time and quality depend on GPU, image resolution/count, camera motion, scene
 texture, and COLMAP version. This repository's local tests do not train a
