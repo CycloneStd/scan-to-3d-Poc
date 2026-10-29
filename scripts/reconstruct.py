@@ -1,270 +1,97 @@
 import argparse
 import os
 from pathlib import Path
-import shutil
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.cyclone_scan.config import ScanConfig
-from src.cyclone_scan.pipeline import ReconstructionPipeline
-
-
-def find_default_colmap() -> Path:
-    env_path = os.environ.get("COLMAP_EXECUTABLE")
-    if env_path and Path(env_path).exists():
-        return Path(env_path)
-
-    which_colmap = shutil.which("colmap")
-    if which_colmap:
-        return Path(which_colmap)
-
-    return Path("colmap")
-
-
-def find_default_input(project_root: Path = PROJECT_ROOT) -> Path:
-    env_input = os.environ.get("SCAN_INPUT_DIR")
-    if env_input and Path(env_input).exists():
-        return Path(env_input)
-
-    return project_root / "data" / "input"
+from src.splat_reconstruction.pipeline import PipelineConfig, SplatPipeline
+from src.splat_reconstruction.video import VideoConfig
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run Cyclone Scan 3D photogrammetry pipeline"
+        description="Build a COLMAP camera baseline and train a gsplat 3D Gaussian scene."
     )
+    parser.add_argument("--run-name", required=True, help="Unique name for this run.")
     parser.add_argument(
-        "--run-name",
-        type=str,
-        default="south-building",
-        help="Name of this reconstruction run (default: south-building)",
-    )
-    parser.add_argument(
-        "--project-root",
+        "--project-dir",
         type=Path,
-        default=PROJECT_ROOT,
-        help="Root directory for run artifacts (default: repository root)",
+        default=PROJECT_ROOT / "data" / "runs",
+        help="Directory under which the run folder will be created.",
     )
-    source_group = parser.add_mutually_exclusive_group()
-    source_group.add_argument(
-        "--input-dir",
-        type=Path,
-        default=None,
-        help="Directory containing source photographs (default: data/input)",
-    )
-    source_group.add_argument(
-        "--input-video",
-        type=Path,
-        help="Video to sample into images before reconstruction",
-    )
+    sources = parser.add_mutually_exclusive_group(required=True)
+    sources.add_argument("--input-dir", type=Path, help="Folder of overlapping photos.")
+    sources.add_argument("--input-video", type=Path, help="Video to sample with FFmpeg.")
     parser.add_argument(
         "--colmap",
+        default=os.environ.get("COLMAP_EXECUTABLE", "colmap"),
+        help="COLMAP executable path.",
+    )
+    parser.add_argument(
+        "--gsplat-trainer",
         type=Path,
-        default=find_default_colmap(),
-        help="Path to COLMAP executable or COLMAP.bat",
+        default=os.environ.get("GSPLAT_TRAINER"),
+        required=os.environ.get("GSPLAT_TRAINER") is None,
+        help="Path to gsplat examples/simple_trainer.py.",
     )
     parser.add_argument(
-        "--use-gpu",
-        action="store_true",
-        default=False,
-        help="Request GPU acceleration for COLMAP feature extraction",
+        "--python",
+        default=sys.executable,
+        help="Python executable with CUDA-enabled PyTorch and gsplat installed.",
     )
     parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=False,
-        help="Allow replacement of incomplete stage outputs and extracted frames",
+        "--mapper",
+        choices=["global_mapper", "mapper"],
+        default="global_mapper",
+        help="COLMAP global mapper (GLOMAP successor) or incremental mapper.",
     )
     parser.add_argument(
-        "--stage",
-        choices=[
-            "all",
-            "preprocess",
-            "sparse",
-            "dense",
-            "mesh",
-            "texture",
-            "export",
-            "view",
-        ],
-        default="all",
-        help="Run full pipeline or a specific stage",
+        "--matching",
+        choices=["exhaustive", "sequential"],
+        help="Defaults to sequential for video and exhaustive for photos.",
     )
-    parser.add_argument("--target-fps", type=float, default=3.0)
-    parser.add_argument("--max-image-dimension", type=int, default=1920)
-    parser.add_argument(
-        "--image-format",
-        choices=["jpg", "png", "bmp", "tif"],
-        default="jpg",
-    )
+    parser.add_argument("--overlap", type=int, default=5)
+    parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--gpu-features", action="store_true")
+    parser.add_argument("--steps", type=int, default=7000)
+    parser.add_argument("--fps", type=float, default=3.0)
+    parser.add_argument("--max-dimension", type=int, default=1920)
+    parser.add_argument("--min-sharpness", type=float, default=40.0)
     parser.add_argument("--jpeg-quality", type=int, default=95)
-    parser.add_argument(
-        "--matching-strategy",
-        default=None,
-        help=(
-            "COLMAP matcher identifier. Default: 'exhaustive' for photo "
-            "folders (unordered photos) and 'sequential' for video frames."
-        ),
-    )
-    parser.add_argument("--sequential-overlap", type=int, default=5)
-    parser.add_argument("--num-threads", type=int, default=8)
-    parser.add_argument(
-        "--no-refine",
-        action="store_true",
-        default=False,
-        help="Skip the OpenMVS RefineMesh stage (faster, less detailed)",
-    )
-    parser.add_argument(
-        "--refine-mesh",
-        type=Path,
-        default=os.environ.get("REFINE_MESH_EXECUTABLE", "RefineMesh"),
-        help="Path to OpenMVS RefineMesh",
-    )
-    parser.add_argument(
-        "--refine-mesh-option",
-        action="append",
-        default=[],
-        help="Replace default RefineMesh arguments; repeat per token",
-    )
-    parser.add_argument(
-        "--densify-option",
-        action="append",
-        default=[],
-        help="Additional verified OpenMVS DensifyPointCloud argument; repeat per token",
-    )
-    parser.add_argument(
-        "--reconstruct-mesh-option",
-        action="append",
-        default=[],
-        help="Additional verified OpenMVS ReconstructMesh argument; repeat per token",
-    )
-    parser.add_argument(
-        "--texture-option",
-        action="append",
-        default=[],
-        help="Additional verified OpenMVS TextureMesh argument; repeat per token",
-    )
-    parser.add_argument(
-        "--interface-colmap",
-        type=Path,
-        default=os.environ.get("INTERFACE_COLMAP_EXECUTABLE", "InterfaceCOLMAP"),
-    )
-    parser.add_argument(
-        "--densify-point-cloud",
-        type=Path,
-        default=os.environ.get("DENSIFY_POINT_CLOUD_EXECUTABLE", "DensifyPointCloud"),
-    )
-    parser.add_argument(
-        "--reconstruct-mesh",
-        type=Path,
-        default=os.environ.get("RECONSTRUCT_MESH_EXECUTABLE", "ReconstructMesh"),
-    )
-    parser.add_argument(
-        "--texture-mesh",
-        type=Path,
-        default=os.environ.get("TEXTURE_MESH_EXECUTABLE", "TextureMesh"),
-    )
+    parser.add_argument("--ffmpeg", default="ffmpeg")
+    parser.add_argument("--ffprobe", default="ffprobe")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-
-    run_name = args.run_name
-    input_dir = args.input_dir or find_default_input(args.project_root)
-    if args.input_video:
-        input_dir = args.project_root / "data" / "runs" / run_name / "frames"
-
-    matching_strategy = args.matching_strategy or (
-        "sequential" if args.input_video else "exhaustive"
+    video = VideoConfig(
+        fps=args.fps,
+        max_dimension=args.max_dimension,
+        min_sharpness=args.min_sharpness,
+        jpeg_quality=args.jpeg_quality,
+        ffmpeg=args.ffmpeg,
+        ffprobe=args.ffprobe,
     )
-    optional_options = {
-        name: tuple(values)
-        for name, values in (
-            ("densify_options", args.densify_option),
-            ("reconstruct_mesh_options", args.reconstruct_mesh_option),
-            ("refine_mesh_options", args.refine_mesh_option),
-            ("texture_options", args.texture_option),
-        )
-        if values
-    }
-
-    config = ScanConfig(
-        project_root=args.project_root,
-        colmap_executable=args.colmap,
-        run_name=run_name,
-        input_dir=input_dir,
-        interface_colmap_executable=args.interface_colmap,
-        densify_point_cloud_executable=args.densify_point_cloud,
-        reconstruct_mesh_executable=args.reconstruct_mesh,
-        refine_mesh_executable=args.refine_mesh,
-        refine_mesh=not args.no_refine,
-        texture_mesh_executable=args.texture_mesh,
-        matching_strategy=matching_strategy,
-        sequential_overlap=args.sequential_overlap,
-        num_threads=args.num_threads,
-        max_image_size=args.max_image_dimension,
-        **optional_options,
+    config = PipelineConfig(
+        project_dir=args.project_dir,
+        run_name=args.run_name,
+        colmap=args.colmap,
+        gsplat_trainer=args.gsplat_trainer,
+        python=args.python,
+        input_dir=args.input_dir,
+        input_video=args.input_video,
+        mapper=args.mapper,
+        matching=args.matching,
+        overlap=args.overlap,
+        threads=args.threads,
+        gpu_features=args.gpu_features,
+        max_steps=args.steps,
+        video=video,
     )
-
-    pipeline = ReconstructionPipeline(
-        config,
-        use_gpu=args.use_gpu,
-        overwrite=args.overwrite,
-        blender_executable=os.environ.get("BLENDER_EXECUTABLE"),
-        gltf_transform_executable=os.environ.get(
-            "GLTF_TRANSFORM_EXECUTABLE", "gltf-transform"
-        ),
-    )
-
-    if args.input_video:
-        from time import perf_counter
-
-        from src.cyclone_scan.video import (
-            VideoPreprocessingConfig,
-            VideoPreprocessor,
-        )
-
-        started = perf_counter()
-        report = VideoPreprocessor(
-            VideoPreprocessingConfig(
-                target_fps=args.target_fps,
-                max_dimension=args.max_image_dimension,
-                image_format=args.image_format,
-                jpeg_quality=args.jpeg_quality,
-                overwrite=args.overwrite,
-            )
-        ).extract(args.input_video, input_dir)
-        pipeline.record_stage_result(
-            "video_preprocessing",
-            {
-                "elapsed_seconds": round(perf_counter() - started, 3),
-                "input_video": str(report.input_video),
-                "output_directory": str(report.output_dir),
-                "input_images": report.extracted_frames,
-                "output_bytes": sum(
-                    frame_path.stat().st_size for frame_path in report.frame_paths
-                ),
-                "effective_fps": report.effective_fps,
-                "source_fps": report.source_fps,
-                "source_frame_count": report.source_frame_count,
-                "source_dimensions": report.source_dimensions,
-                "output_dimensions": report.output_dimensions,
-            },
-        )
-        print(
-            f"Extracted {report.extracted_frames} frames at "
-            f"{report.effective_fps:.2f} effective FPS; "
-            f"output dimensions: {report.output_dimensions[0]}x"
-            f"{report.output_dimensions[1]}"
-        )
-    elif args.stage == "preprocess":
-        raise ValueError("--stage preprocess requires --input-video.")
-
-    if args.stage != "preprocess":
-        pipeline.run(args.stage)
+    SplatPipeline(config).run()
 
 
 if __name__ == "__main__":
