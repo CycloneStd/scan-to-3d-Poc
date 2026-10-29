@@ -394,9 +394,20 @@ class SplatPipeline:
         options = {
             "--ImageReader.single_camera": "1",
             "--FeatureExtraction.num_threads": str(self.config.threads),
-            "--SiftExtraction.use_gpu": "1" if self.config.gpu_features else "0",
         }
-        if self.config.gpu_features and "--SiftExtraction.use_gpu" not in help_text:
+        gpu_option = next(
+            (
+                option for option in (
+                    "--FeatureExtraction.use_gpu",
+                    "--SiftExtraction.use_gpu",
+                )
+                if option in help_text
+            ),
+            None,
+        )
+        if gpu_option is not None:
+            options[gpu_option] = "1" if self.config.gpu_features else "0"
+        elif self.config.gpu_features:
             raise RuntimeError("This COLMAP build does not support GPU feature extraction.")
         command.extend(
             item for option, value in options.items()

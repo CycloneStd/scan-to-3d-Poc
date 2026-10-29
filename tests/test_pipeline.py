@@ -136,15 +136,23 @@ def test_database_counts_include_verified_match_table(tmp_path: Path) -> None:
     assert pipeline._database_counts() == (2, 2, 1)
 
 
-def test_feature_extraction_disables_sift_gpu_by_default(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "gpu_flag",
+    ["--FeatureExtraction.use_gpu", "--SiftExtraction.use_gpu"],
+)
+def test_feature_extraction_disables_gpu_by_default(
+    tmp_path: Path, monkeypatch, gpu_flag: str
+) -> None:
     pipeline = SplatPipeline(create_config(tmp_path))
     command = []
 
     monkeypatch.setattr(
         pipeline,
         "_run_help",
-        lambda _: "--ImageReader.single_camera --FeatureExtraction.num_threads "
-        "--SiftExtraction.use_gpu",
+        lambda _: (
+            "--ImageReader.single_camera --FeatureExtraction.num_threads "
+            f"{gpu_flag}"
+        ),
     )
     monkeypatch.setattr(
         pipeline,
@@ -159,7 +167,7 @@ def test_feature_extraction_disables_sift_gpu_by_default(tmp_path: Path, monkeyp
 
     pipeline._extract_features("image-signature")
 
-    option_index = command.index("--SiftExtraction.use_gpu")
+    option_index = command.index(gpu_flag)
     assert command[option_index + 1] == "0"
 
 
