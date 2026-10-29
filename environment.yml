@@ -1,12 +1,10 @@
-name: cyclone-scan
+name: splat-reconstruction
 channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - numpy>=1.24
-  - open3d>=0.18.0
+  - numpy>=1.24,<2
   - opencv>=4.8.0
-  - trimesh>=4.0.0
-  - pillow>=10.0.0
+  - ffmpeg
+  - colmap
   - pytest>=8.0.0
-  - pip

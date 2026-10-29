@@ -1,7 +1,10 @@
-# Baseline report (local evidence only, 2026-10-28)
+# Historical baseline report (legacy pipeline; local evidence only, 2026-10-28)
 
 Source: `data/runs/south-building` (local copy; not modified). Measured with
-`scripts/inspect_mesh.py`; JSON per file in this directory.
+the inspector that belonged to the former mesh pipeline. This report and its
+JSON files are historical evidence only; they are not inputs or outputs of the
+current splat pipeline. The former inspector and mesh scripts have been
+removed.
 
 | File | Vertices | Faces | Extent (x,y,z) | Components | UV/texture |
 |---|---|---|---|---|---|

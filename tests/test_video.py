@@ -1,196 +1,84 @@
+import json
 from pathlib import Path
+import subprocess
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from src.cyclone_scan import video
-from src.cyclone_scan.video import VideoPreprocessingConfig, VideoPreprocessor
+from src.splat_reconstruction import video
+from src.splat_reconstruction.video import VideoConfig, extract_video
 
 
-class FakeCapture:
-    def __init__(
-        self,
-        frames: int = 11,
-        *,
-        fps: float = 10.0,
-        width: int = 4000,
-        height: int = 2000,
-        opened: bool = True,
-    ) -> None:
-        self.frames = frames
-        self.fps = fps
-        self.width = width
-        self.height = height
-        self.opened = opened
-        self.index = -1
-
-    def isOpened(self) -> bool:
-        return self.opened
-
-    def get(self, prop: int) -> float:
-        if prop == video.cv2.CAP_PROP_FPS:
-            return self.fps
-        if prop == video.cv2.CAP_PROP_FRAME_WIDTH:
-            return self.width
-        if prop == video.cv2.CAP_PROP_FRAME_HEIGHT:
-            return self.height
-        if prop == video.cv2.CAP_PROP_POS_MSEC:
-            return max(0, self.index) * 100.0
-        return 0.0
-
-    def read(self):
-        self.index += 1
-        if self.index >= self.frames:
-            return False, None
-        return True, np.zeros((self.height, self.width, 3), dtype=np.uint8)
-
-    def release(self) -> None:
-        pass
+def test_video_config_validates_sampling_settings() -> None:
+    with pytest.raises(ValueError, match="fps"):
+        VideoConfig(fps=0)
+    with pytest.raises(ValueError, match="sharpness"):
+        VideoConfig(min_sharpness=-1)
 
 
-def create_input(tmp_path: Path) -> Path:
-    path = tmp_path / "source.mp4"
-    path.write_bytes(b"video")
-    return path
-
-
-def test_extract_samples_resizes_and_names_frames_chronologically(
+def test_extract_video_filters_blurry_frames_and_resumes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    create_input(tmp_path)
-    written: list[tuple[str, tuple[int, ...]]] = []
-    monkeypatch.setattr(video.cv2, "VideoCapture", lambda _path: FakeCapture())
+    input_video = tmp_path / "input.mp4"
+    input_video.write_bytes(b"synthetic-video")
+    sharp = np.indices((180, 320)).sum(axis=0).astype(np.uint8) % 2 * 255
+    blurry = np.full((180, 320), 127, dtype=np.uint8)
+    ffmpeg_calls = 0
+    monkeypatch.setattr(video, "_resolve", lambda value: f"C:\\tools\\{value}.exe")
 
-    def write_image(path: str, frame: np.ndarray, _parameters: list[int]) -> bool:
-        written.append((path, frame.shape))
-        Path(path).write_bytes(b"frame")
-        return True
+    def fake_run(command: list[str], _description: str):
+        nonlocal ffmpeg_calls
+        if "-show_entries" in command:
+            return SimpleNamespace(
+                stdout=json.dumps(
+                    {"streams": [{"width": 640, "height": 360}]}
+                )
+            )
+        ffmpeg_calls += 1
+        pattern = Path(command[-1])
+        for index, frame in enumerate((sharp, blurry, sharp, blurry)):
+            destination = Path(
+                str(pattern).replace("%06d", f"{index:06d}")
+            )
+            assert video.cv2.imwrite(str(destination), frame)
+        return subprocess.CompletedProcess(command, 0)
 
-    monkeypatch.setattr(video.cv2, "imwrite", write_image)
-    report = VideoPreprocessor(
-        VideoPreprocessingConfig(target_fps=2, max_dimension=1000)
-    ).extract(tmp_path / "source.mp4", tmp_path / "frames")
+    monkeypatch.setattr(video, "_run", fake_run)
+    config = VideoConfig(fps=2, max_dimension=320, min_sharpness=40)
 
-    assert [Path(path).name for path, _ in written] == [
-        "frame_000000.jpg",
-        "frame_000001.jpg",
-        "frame_000002.jpg",
-    ]
-    assert all(shape[:2] == (500, 1000) for _, shape in written)
-    assert report.extracted_frames == 3
-    assert report.effective_fps == pytest.approx(2.0)
-    assert report.source_dimensions == (4000, 2000)
-    assert report.output_dimensions == (1000, 500)
+    first = extract_video(input_video, tmp_path / "frames", config)
+    second = extract_video(input_video, tmp_path / "frames", config)
 
-
-def test_missing_video_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="Input video does not exist"):
-        VideoPreprocessor().extract(tmp_path / "missing.mp4", tmp_path / "frames")
-
-
-def test_video_open_failure_is_reported(tmp_path: Path, monkeypatch) -> None:
-    video_path = create_input(tmp_path)
-    monkeypatch.setattr(
-        video.cv2, "VideoCapture", lambda _path: FakeCapture(opened=False)
-    )
-
-    with pytest.raises(RuntimeError, match="Unable to open input video"):
-        VideoPreprocessor().extract(video_path, tmp_path / "frames")
+    assert first["frames"] == 2
+    assert first["dropped_blurry"] == 2
+    assert first["dimensions"] == (320, 180)
+    assert second["reused"] is True
+    assert ffmpeg_calls == 1
 
 
-def test_empty_video_is_reported(tmp_path: Path, monkeypatch) -> None:
-    video_path = create_input(tmp_path)
-    monkeypatch.setattr(
-        video.cv2, "VideoCapture", lambda _path: FakeCapture(frames=0)
-    )
-
-    with pytest.raises(RuntimeError, match="No frames were extracted"):
-        VideoPreprocessor().extract(video_path, tmp_path / "frames")
-
-
-def test_invalid_video_fps_is_rejected(tmp_path: Path, monkeypatch) -> None:
-    video_path = create_input(tmp_path)
-    monkeypatch.setattr(
-        video.cv2, "VideoCapture", lambda _path: FakeCapture(fps=-1)
-    )
-
-    with pytest.raises(ValueError, match="invalid FPS"):
-        VideoPreprocessor().extract(video_path, tmp_path / "frames")
-
-
-def test_missing_fps_uses_capture_timestamps(
+def test_extract_video_requires_at_least_two_sharp_frames(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    video_path = create_input(tmp_path)
-    monkeypatch.setattr(
-        video.cv2, "VideoCapture", lambda _path: FakeCapture(fps=0)
-    )
-    monkeypatch.setattr(
-        video.cv2, "imwrite", lambda path, _frame, _params: Path(path).write_bytes(b"x") > 0
-    )
+    input_video = tmp_path / "input.mp4"
+    input_video.write_bytes(b"synthetic-video")
+    monkeypatch.setattr(video, "_resolve", lambda value: value)
 
-    report = VideoPreprocessor(
-        VideoPreprocessingConfig(target_fps=2, max_dimension=5000)
-    ).extract(video_path, tmp_path / "frames")
+    def fake_run(command: list[str], _description: str):
+        if "-show_entries" in command:
+            return SimpleNamespace(
+                stdout=json.dumps(
+                    {"streams": [{"width": 64, "height": 48}]}
+                )
+            )
+        path = Path(command[-1].replace("%06d", "000000"))
+        assert video.cv2.imwrite(str(path), np.full((48, 64), 100, dtype=np.uint8))
+        return subprocess.CompletedProcess(command, 0)
 
-    assert report.source_fps is None
-    assert report.extracted_frames == 3
-
-
-def test_matching_preprocessing_manifest_reuses_frames(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    video_path = create_input(tmp_path)
-    output_dir = tmp_path / "frames"
-    monkeypatch.setattr(video.cv2, "VideoCapture", lambda _path: FakeCapture(frames=1))
-    monkeypatch.setattr(
-        video.cv2,
-        "imwrite",
-        lambda path, _frame, _params: Path(path).write_bytes(b"frame") > 0,
-    )
-    monkeypatch.setattr(
-        video.cv2,
-        "imread",
-        lambda _path: np.zeros((2, 2, 3), dtype=np.uint8),
-    )
-    preprocessor = VideoPreprocessor(
-        VideoPreprocessingConfig(max_dimension=5000)
-    )
-    first_report = preprocessor.extract(video_path, output_dir)
-    monkeypatch.setattr(
-        video.cv2,
-        "VideoCapture",
-        lambda _path: pytest.fail("matching frames should be reused"),
-    )
-
-    second_report = preprocessor.extract(video_path, output_dir)
-
-    assert second_report.frame_paths == first_report.frame_paths
-
-
-def test_existing_frames_are_not_mixed_without_overwrite(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    video_path = create_input(tmp_path)
-    output_dir = tmp_path / "frames"
-    output_dir.mkdir()
-    (output_dir / "frame_000000.png").write_bytes(b"existing")
-    monkeypatch.setattr(video.cv2, "VideoCapture", lambda _path: FakeCapture())
-
-    with pytest.raises(FileExistsError, match="use overwrite=True"):
-        VideoPreprocessor().extract(video_path, output_dir)
-
-
-@pytest.mark.parametrize(
-    "values",
-    [
-        {"target_fps": 0},
-        {"target_fps": float("nan")},
-        {"max_dimension": 0},
-        {"jpeg_quality": 101},
-        {"image_format": "webp"},
-    ],
-)
-def test_invalid_video_configuration_is_rejected(values: dict) -> None:
-    with pytest.raises(ValueError):
-        VideoPreprocessingConfig(**values)
+    monkeypatch.setattr(video, "_run", fake_run)
+    with pytest.raises(RuntimeError, match="Only 0 sharp frames"):
+        extract_video(
+            input_video,
+            tmp_path / "frames",
+            VideoConfig(fps=1, min_sharpness=40),
+        )
