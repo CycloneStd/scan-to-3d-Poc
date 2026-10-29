@@ -136,6 +136,33 @@ def test_database_counts_include_verified_match_table(tmp_path: Path) -> None:
     assert pipeline._database_counts() == (2, 2, 1)
 
 
+def test_feature_extraction_disables_sift_gpu_by_default(tmp_path: Path, monkeypatch) -> None:
+    pipeline = SplatPipeline(create_config(tmp_path))
+    command = []
+
+    monkeypatch.setattr(
+        pipeline,
+        "_run_help",
+        lambda _: "--ImageReader.single_camera --FeatureExtraction.num_threads "
+        "--SiftExtraction.use_gpu",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_stage",
+        lambda name, signature, valid, operation, outputs: operation(),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_command",
+        lambda args, stage: command.extend(args) or "",
+    )
+
+    pipeline._extract_features("image-signature")
+
+    option_index = command.index("--SiftExtraction.use_gpu")
+    assert command[option_index + 1] == "0"
+
+
 def test_sparse_export_persists_ply_and_camera_text(tmp_path: Path, monkeypatch) -> None:
     pipeline = SplatPipeline(create_config(tmp_path))
     model = pipeline.config.sparse_dir / "0"
