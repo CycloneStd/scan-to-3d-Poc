@@ -34,7 +34,7 @@ def apply_overrides(cfg:dict,overrides:list[str] | None)->dict:
         key,sep,raw = item.partition("=")
         if not sep:
             raise ValueError(f"Override must look like section.key=value, got '{item}'")
-        node =- cfg
+        node = cfg
         *parents,leaf = key.split(".")
         for part in parents:
             node = node.setdefault(part,{})
