@@ -1,0 +1,23 @@
+project:
+  name: house-poc
+
+inputs:
+  photos_dir: Dataset/images
+  videos:
+    - Dataset/video/vid1.mp4
+
+video:
+  fps: 2.0            # frames extracted per second of video
+  jpeg_quality: 2     # ffmpeg -q:v scale, lower = better
+
+validation:
+  min_short_side: 600     # px, flag smaller images
+  blur_ratio: 0.5         # flag if sharpness < ratio * median of its camera group
+  min_brightness: 30
+  max_brightness: 225
+
+remote:
+  session: scan3d
+  gpu: T4
+  high_mem: true
+  auth: null              # null = CLI default; or "oauth2" / "adc"
