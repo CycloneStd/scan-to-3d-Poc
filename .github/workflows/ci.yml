@@ -25,7 +25,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: python -m pip install pytest opencv-python-headless numpy
+        run: python -m pip install -e . pytest opencv-python-headless numpy
 
       - name: Check Python syntax
         run: python -m compileall -q .

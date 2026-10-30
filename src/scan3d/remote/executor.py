@@ -11,7 +11,7 @@ ENTRY = Path(__file__).with_name("colab_entry.py")
 
 
 class ColabExecutor:
-    def __init__(self,session:str,gpu:str|None = "T4", high_mem: Bool = True, auth: str| None = None):
+    def __init__(self,session:str,gpu:str|None = "T4", high_mem: bool = True, auth: str| None = None):
         self.session, self.gpu, self.high_mem, self.auth = session, gpu, high_mem, auth
 
     def _colab(self, *args:str)->None:
@@ -41,7 +41,7 @@ class ColabExecutor:
 
     
     @contextmanager
-    def open_session(self,keep:Bool= False):
+    def open_session(self,keep:bool= False):
         self.new()
         try:
             yield self

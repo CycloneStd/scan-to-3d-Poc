@@ -43,6 +43,12 @@ class Manifest:
     def get(self,name:str) -> dict | None:
         return self.data["stages"].get(name)
 
+    def update(self, name: str, **values: Any) -> dict:
+        record = self.data["stages"].setdefault(name, {})
+        record.update(values)
+        self.save()
+        return record
+
     def save(self) -> None:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.data, indent=2, default=str))
