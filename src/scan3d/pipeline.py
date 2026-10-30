@@ -28,12 +28,13 @@ class Stage(ABC):
     
     @abstractmethod
     def run(self,ctx:Context)->dict:
+        ...
 
 
 def _now()->str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
-def execute(ctx:Context,names:list[str],registry:dict[str,Stage],force:Bool=False)->None:
+def execute(ctx:Context,names:list[str],registry:dict[str,Stage],force:bool=False)->None:
     for name in names:
         stage = registry[name]
         upstream = {}
