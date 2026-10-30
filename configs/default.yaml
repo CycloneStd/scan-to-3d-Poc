@@ -21,3 +21,14 @@ remote:
   gpu: T4
   high_mem: true
   auth: null              # null = CLI default; or "oauth2" / "adc"
+
+
+colmap:
+  binary: colmap 
+
+features: 
+  camera_model: SIMPLE_RADIAL
+  use_gpu: false
+
+sparse: 
+  mapper: incremental
