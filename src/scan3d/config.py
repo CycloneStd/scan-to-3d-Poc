@@ -9,6 +9,9 @@ REQUIRED = {
     "video" : ["fps","jpeg_quality"],
     "validation" : ["min_short_side","blur_ratio","min_brightness","max_brightness"],
     "remote" : ["session", "gpu"],
+    "colmap" :["binary"],
+    "features": ["camera_model", "use_gpu"],
+    "sparse": ["mapper"],
 }
 
 def load_config(path: str| Path) -> dict:
@@ -22,5 +25,19 @@ def load_config(path: str| Path) -> dict:
 
     if problems:
         raise ValueError(f"Invalid config {path}: " + "; ".join(problems))
+
+    return cfg
+
+
+def apply_overrides(cfg:dict,overrides:list[str] | None)->dict:
+    for item in overrides or []:
+        key,sep,raw = item.partition("=")
+        if not sep:
+            raise ValueError(f"Override must look like section.key=value, got '{item}'")
+        node =- cfg
+        *parents,leaf = key.split(".")
+        for part in parents:
+            node = node.setdefault(part,{})
+        node[leaf] = yaml.safe_load(raw)
 
     return cfg
