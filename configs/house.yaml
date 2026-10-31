@@ -1,0 +1,32 @@
+project:
+  name: house
+
+inputs:
+  photos_dir: Dataset/images
+  videos: []
+
+video:
+  fps: 2.0
+  jpeg_quality: 2
+
+validation:
+  min_short_side: 600
+  blur_ratio: 0.5
+  min_brightness: 30
+  max_brightness: 225
+
+remote:
+  session: scan3d
+  gpu: T4
+  high_mem: true
+  auth: null
+
+colmap:
+  binary: /home/CodeWolf/anaconda3/envs/colmap4/bin/colmap
+
+features:
+  camera_model: SIMPLE_RADIAL
+  use_gpu: false
+
+sparse:
+  mapper: global

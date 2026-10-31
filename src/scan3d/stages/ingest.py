@@ -12,7 +12,10 @@ IMAGE_EXT = {".jpg", ".jpeg", ".png"}
 
 
 def _photos(cfg: dict) -> list[Path]:
-    d = Path(cfg["inputs"]["photos_dir"])
+    raw = cfg["inputs"].get("photos_dir")
+    if not raw:
+        return []
+    d = Path(raw)
     return sorted(p for p in d.iterdir() if p.suffix.lower() in IMAGE_EXT) if d.is_dir() else []
 
 
