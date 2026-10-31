@@ -1,12 +1,13 @@
-from __future__ import annotations 
+from __future__ import annotations
 
-import json 
-import logging 
+import json
+import logging
+import shutil
 import subprocess
 import tempfile
-import shutil
+import time
 from contextlib import contextmanager
-from pathlib import Path 
+from pathlib import Path
 
 from .bundle import split_file
 
@@ -15,33 +16,60 @@ ENTRY = Path(__file__).with_name("colab_entry.py")
 
 
 class ColabExecutor:
-    def __init__(self,session:str,gpu:str|None = "T4", high_mem: bool = True, auth: str| None = None):
+    """Thin adapter over the `colab` CLI. Fire-and-forget commands, JSON job protocol."""
+
+    def __init__(self, session: str, gpu: str | None = "T4", high_mem: bool = True,
+                 auth: str | None = None, fallback_gpus=()):
         self.session, self.gpu, self.high_mem, self.auth = session, gpu, high_mem, auth
+        self.fallback_gpus = list(fallback_gpus)
+        self.active_gpu = None
 
-    def _colab(self, *args:str)->None:
-        cmd = ["colab"] + (["--auth", self.auth] if self.auth else []) + list(args)
+    def _base(self) -> list[str]:
+        return ["colab"] + (["--auth", self.auth] if self.auth else [])
+
+    def _try_colab(self, *args: str) -> bool:
+        cmd = self._base() + list(args)
         log.info("$ %s", " ".join(cmd))
-        proc = subprocess.run(cmd)
-        if proc.returncode != 0:
-            raise RuntimeError(f"Colab command failed (exit {proc.returncode}): {' '.join(cmd)}")
+        return subprocess.run(cmd).returncode == 0
 
-    def new(self)->None:
-        args = ["new", "-s", self.session]
-        if self.gpu:
-            args += ["--gpu", self.gpu]
-        if self.high_mem:
-            args += ["--high-mem"]
-        self._colab(*args)
+    def _colab(self, *args: str) -> None:
+        if not self._try_colab(*args):
+            raise RuntimeError(f"colab command failed: colab {' '.join(args)}")
 
-    def stop(self)->None:
-        self._colab("stop","-s", self.session)
-    def upload(self,local:Path, remote:str)->None:
-        self._colab("upload","-s",self.session,str(local),remote)
-    def download(self,remote:str,local:Path)->None:
-        local.parent.mkdir(parents=True,exist_ok=True)
-        self._colab("download","-s",self.session,remote,str(local))
-    def exec_file(self,script:Path)->None:
-        self._colab("exec","-s",self.session,"-f",str(script))
+    def new(self, retries: int = 2, wait_s: int = 45) -> None:
+        combos = [(g, hm) for g in [self.gpu] + self.fallback_gpus
+                  for hm in ([True, False] if self.high_mem else [False])]
+        for attempt in range(retries + 1):
+            for gpu, hm in combos:
+                args = ["new", "-s", self.session]
+                if gpu:
+                    args += ["--gpu", gpu]
+                if hm:
+                    args += ["--high-mem"]
+                if self._try_colab(*args):
+                    self.active_gpu = gpu
+                    log.info("Allocated runtime: gpu=%s high_mem=%s", gpu, hm)
+                    return
+                log.warning("Allocation failed for gpu=%s high_mem=%s", gpu, hm)
+            if attempt < retries:
+                log.info("Waiting %ds before retrying allocation...", wait_s)
+                time.sleep(wait_s)
+        raise RuntimeError("Could not allocate a Colab runtime. Check `colab sessions` and `colab usage`.")
+
+    def upload(self, local: Path, remote: str) -> None:
+        self._colab("upload", "-s", self.session, str(local), remote)
+
+    def download(self, remote: str, local: Path) -> None:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        self._colab("download", "-s", self.session, remote, str(local))
+
+    def exec_file(self, script: Path) -> None:
+        self._colab("exec", "-s", self.session, "-f", str(script))
+
+    def ping(self) -> None:
+        """Trivial kernel execution, to keep the session active during long file transfers."""
+        subprocess.run(self._base() + ["exec", "-s", self.session],
+                       input="print('keepalive')\n", text=True, capture_output=True)
 
     def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 4, retries: int = 3) -> int:
         tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
@@ -58,6 +86,8 @@ class ColabExecutor:
                         log.warning("upload of %s failed (attempt %d), retrying", part.name, attempt)
                 part.unlink()
                 log.info("uploaded part %d/%d", i, len(parts))
+                if i % 5 == 0:
+                    self.ping()
             return len(parts)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -82,19 +112,20 @@ class ColabExecutor:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    
     @contextmanager
-    def open_session(self,keep:bool= False):
+    def open_session(self, keep: bool = False):
         self.new()
         try:
             yield self
         finally:
             if keep:
-                log.warning("Session '%s' left running. Release it with: colab stop -s %s", self.session, self.session)
-            else:
-                self.stop()
+                log.warning("Session '%s' left running. Release it with: colab stop -s %s",
+                            self.session, self.session)
+            elif not self._try_colab("stop", "-s", self.session):
+                log.warning("Could not stop session '%s' (it may already be gone). "
+                            "Check `colab sessions`.", self.session)
 
-    def run_job(self,job:dict,out_dir:Path,uploads: dict[Path,str] | None = None)-> dict:
+    def run_job(self, job: dict, out_dir: Path, uploads: dict[Path, str] | None = None) -> dict:
         out_dir.mkdir(parents=True, exist_ok=True)
         job_file = out_dir / "job.json"
         job_file.write_text(json.dumps(job, indent=2))
