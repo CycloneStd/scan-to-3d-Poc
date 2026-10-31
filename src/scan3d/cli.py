@@ -64,6 +64,24 @@ def cmd_remote_probe(args):
     print(json.dumps(result, indent=2))
 
 
+def cmd_report(args):
+    root = RUNS / args.run_id
+    manifest = Manifest(root / "manifest.json")
+    lines = [f"# Reconstruction report: {args.run_id}", "",
+             "| Stage | Status | Seconds | Metrics |", "|---|---|---|---|"]
+    for name, rec in manifest.data["stages"].items():
+        lines.append(f"| {name} | {rec.get('status')} | {rec.get('seconds', '-')} | "
+                     f"`{json.dumps(rec.get('metrics', {}))}` |")
+    shots = sorted((root / "08_export").glob("view_*.png"))
+    lines += ["", "## Renders (axis-aligned views; COLMAP's up-axis is arbitrary)", ""]
+    lines += [f"![{p.stem}]({p.relative_to(root)})" for p in shots]
+    lines += ["", "## Known limitations", "",
+              "- Scale is arbitrary (structure-from-motion is up-to-scale); metric accuracy is not validated.",
+              "- Only surfaces visible in the photographs are reconstructed; unphotographed areas are missing.",
+              "- Reprojection error measures internal consistency, not accuracy against ground truth."]
+    (root / "report.md").write_text("\n".join(lines))
+    print(f"Wrote {root / 'report.md'}")
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="scan3d")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -89,6 +107,10 @@ def main(argv=None):
     rp.add_argument("--run-id")
     rp.add_argument("--keep", action="store_true", help="leave the VM running afterwards")
     rp.set_defaults(fn=cmd_remote_probe)
+
+    rep = sub.add_parser("report", help="write runs/<id>/report.md")
+    rep.add_argument("--run-id", required=True)
+    rep.set_defaults(fn=cmd_report)
 
     args = p.parse_args(argv)
     args.fn(args)

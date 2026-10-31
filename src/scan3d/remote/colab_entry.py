@@ -3,11 +3,15 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import traceback
+from collections import deque
 
 JOB = "/content/job.json"
 RESULT = "/content/result.json"
+LOG = "/content/dense.log"
+MM = "/content/bin/micromamba"
 
 
 def sh(cmd, timeout=120):
@@ -18,33 +22,98 @@ def sh(cmd, timeout=120):
         return f"ERROR: {exc}"
 
 
+def stream(cmd):
+    print("$", " ".join(cmd), flush=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    tail = deque(maxlen=30)
+    with open(LOG, "a") as fh:
+        for line in proc.stdout:
+            fh.write(line)
+            tail.append(line)
+            print(line, end="", flush=True)
+    return proc.wait(), "".join(tail)
+
+
 def probe(job):
     info = {"python": sys.version.split()[0], "cpu_count": os.cpu_count()}
     for line in open("/proc/meminfo"):
         if line.startswith("MemTotal"):
             info["ram_gb"] = round(int(line.split()[1]) / 1024 / 1024, 1)
             break
-    du = shutil.disk_usage("/content")
-    info["disk_free_gb"] = round(du.free / 1e9, 1)
+    info["disk_free_gb"] = round(shutil.disk_usage("/content").free / 1e9, 1)
     info["os"] = sh("grep PRETTY_NAME /etc/os-release")
     info["gpu"] = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
     info["nvcc"] = sh("nvcc --version | tail -1")
-    info["tools"] = {t: shutil.which(t) for t in ["colmap", "ffmpeg", "cmake", "ninja", "git", "blender"]}
-    try:
-        import torch
-        info["torch"] = {"version": torch.__version__, "cuda": torch.cuda.is_available(),
-                         "cuda_version": torch.version.cuda}
-    except Exception as exc:
-        info["torch"] = f"not importable: {exc}"
     return info
 
 
-ACTIONS = {"probe": probe}
+def dense(job):
+    work = "/content/work"
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    with tarfile.open(job["workspace_tar"]) as tar:
+        tar.extractall(work)
+    ws = f"{work}/workspace"
+
+    if not os.path.exists(MM):
+        sh("mkdir -p /content/bin && curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest "
+           "| tar -xj -C /content bin/micromamba", timeout=300)
+    gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
+
+    attempts = []
+    for i, spec in enumerate(job["colmap_specs"]):
+        env = f"/content/cm{i}"
+        att = {"spec": spec}
+        attempts.append(att)
+
+        t0 = time.time()
+        rc, tail = stream([MM, "create", "-y", "-p", env, "-c", "conda-forge", spec])
+        att["install_seconds"] = round(time.time() - t0, 1)
+        if rc != 0:
+            att["failed"] = "install: " + tail[-600:]
+            continue
+
+        colmap = [MM, "run", "-p", env, "colmap"]
+        att["banner"] = sh(" ".join(colmap) + " -h 2>&1 | head -3")
+        if "without GPU" in att["banner"]:
+            att["failed"] = "this build has no GPU support"
+            continue
+
+        t0 = time.time()
+        rc, tail = stream(colmap + ["patch_match_stereo", "--workspace_path", ws, "--workspace_format", "COLMAP",
+                                    "--PatchMatchStereo.geom_consistency",
+                                    "true" if job["geom_consistency"] else "false"])
+        t_pm = round(time.time() - t0, 1)
+        if rc != 0:
+            att["failed"] = "patch_match_stereo: " + tail[-600:]
+            continue
+
+        t0 = time.time()
+        rc, tail = stream(colmap + ["stereo_fusion", "--workspace_path", ws, "--workspace_format", "COLMAP",
+                                    "--input_type", "geometric", "--output_path", f"{ws}/fused.ply"])
+        t_fu = round(time.time() - t0, 1)
+        if rc != 0:
+            att["failed"] = "stereo_fusion: " + tail[-600:]
+            continue
+
+        with tarfile.open("/content/dense_result.tar.gz", "w:gz") as tar:
+            for name in os.listdir(ws):
+                if name.startswith("fused.ply"):
+                    tar.add(f"{ws}/{name}", arcname=name)
+            tar.add(LOG, arcname="remote_dense.log")
+        return {"gpu": gpu, "colmap_spec": spec, "banner": att["banner"], "seconds_patch_match": t_pm,
+                "seconds_fusion": t_fu, "attempts": attempts}
+
+    raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
+
+
+ACTIONS = {"probe": probe, "dense": dense}
 
 
 def main():
-    if os.path.exists(RESULT):
-        os.remove(RESULT)
+    for f in (RESULT, LOG):
+        if os.path.exists(f):
+            os.remove(f)
     job = json.load(open(JOB))
     t0 = time.time()
     try:
@@ -53,7 +122,7 @@ def main():
         result = {"ok": False, "action": job.get("action"), "error": traceback.format_exc()}
     result["seconds"] = round(time.time() - t0, 2)
     json.dump(result, open(RESULT, "w"), indent=2)
-    print(json.dumps(result, indent=2))
+    print(json.dumps({k: v for k, v in result.items() if k != "data"}, indent=2))
 
 
 main()
