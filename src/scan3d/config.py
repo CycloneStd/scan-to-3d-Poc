@@ -21,6 +21,7 @@ DEFAULTS = {
               "colmap_specs": ["colmap=4.2.1=cuda_129*", "colmap=4.2.1=cuda_130*"]},
     "mesh": {"texture": True,"target_face_ratio":0.05},
     "blender": {"binary": "blender"},
+    "export": {"flip_v": True},
 }
 
 

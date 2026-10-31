@@ -28,13 +28,15 @@ def main():
         "vertices": sum(len(o.data.vertices) for o in meshes),
         "faces": sum(len(o.data.polygons) for o in meshes),
     }
-    textures = sorted({
-        n.image.name
+    tex_nodes = [
+        n
         for o in meshes for slot in o.material_slots
         if slot.material and slot.material.use_nodes
         for n in slot.material.node_tree.nodes if n.type == "TEX_IMAGE" and n.image
-    })
+    ]
+    textures = sorted({n.image.name for n in tex_nodes})
     report["texture_images"] = textures
+    report["texture_sizes"] = {n.image.name: list(n.image.size) for n in tex_nodes}
 
     if meshes:
         corners = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
