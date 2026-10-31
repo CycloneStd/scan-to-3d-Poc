@@ -24,3 +24,17 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+def split_file(path: Path, out_dir: Path, prefix: str, chunk_bytes: int) -> list[Path]:
+    parts: list[Path] = []
+    with open(path, "rb") as fh:
+        i = 0
+        while True:
+            data = fh.read(chunk_bytes)
+            if not data:
+                break
+            p = out_dir / f"{prefix}{i:03d}"
+            p.write_bytes(data)
+            parts.append(p)
+            i += 1
+    return parts

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..pipeline import Context, Stage
-from ..remote.bundle import pack, unpack
+from ..remote.bundle import pack, sha256, unpack
 from ..remote.executor import ColabExecutor
 from ..utils.ply import ply_counts
 
@@ -19,22 +19,29 @@ class DenseStage(Stage):
         out = ctx.run.stage_dir(self.dir_name)
         ws = ctx.run.stage_dir("05_undistort") / "workspace"
         tar = out / "workspace.tar.gz"
-        pack({"workspace": ws}, tar)
+        digest = pack({"workspace": ws}, tar)
 
         r = cfg["remote"]
+        chunk_mb = int(r.get("chunk_mb", 4))
         ex = ColabExecutor(r["session"], r.get("gpu"), r.get("high_mem", True), r.get("auth"))
-        job = {"action": "dense", "workspace_tar": "/content/workspace.tar.gz",
-               "colmap_specs": cfg["dense"]["colmap_specs"],
-               "geom_consistency": cfg["dense"]["geom_consistency"]}
+        result_tar = out / "dense_result.tar.gz"
         with ex.open_session():
-            result = ex.run_job(job, out / "remote", uploads={tar: "/content/workspace.tar.gz"})
+            n = ex.upload_chunked(tar, "ws.part", chunk_mb)
+            job = {"action": "dense", "workspace_tar": "/content/workspace.tar.gz",
+                   "parts_prefix": "ws.part", "num_parts": n, "sha256": digest,
+                   "chunk_bytes": chunk_mb * 1024 * 1024,
+                   "colmap_specs": cfg["dense"]["colmap_specs"],
+                   "geom_consistency": cfg["dense"]["geom_consistency"]}
+            result = ex.run_job(job, out / "remote")
             if result.get("ok"):
-                ex.download("/content/dense_result.tar.gz", out / "dense_result.tar.gz")
+                ex.download_chunked("dense_result.part", result["data"]["result_parts"], result_tar)
         if not result.get("ok"):
             raise RuntimeError("Remote dense stage failed:\n" + result.get("error", "unknown error"))
 
-        unpack(out / "dense_result.tar.gz", out)
         data = result["data"]
+        if sha256(result_tar) != data["result_sha256"]:
+            raise RuntimeError("Downloaded dense result failed its checksum; re-run the stage")
+        unpack(result_tar, out)
         return {"fused_points": ply_counts(out / "fused.ply").get("vertex"),
                 "colmap_spec": data["colmap_spec"], "gpu": data["gpu"],
                 "seconds_patch_match": data["seconds_patch_match"],

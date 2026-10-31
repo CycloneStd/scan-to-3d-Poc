@@ -3,8 +3,12 @@ from __future__ import annotations
 import json 
 import logging 
 import subprocess
+import tempfile
+import shutil
 from contextlib import contextmanager
 from pathlib import Path 
+
+from .bundle import split_file
 
 log = logging.getLogger("scan3d.remote")
 ENTRY = Path(__file__).with_name("colab_entry.py")
@@ -38,6 +42,45 @@ class ColabExecutor:
         self._colab("download","-s",self.session,remote,str(local))
     def exec_file(self,script:Path)->None:
         self._colab("exec","-s",self.session,"-f",str(script))
+
+    def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 4, retries: int = 3) -> int:
+        tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
+        try:
+            parts = split_file(local, tmp, prefix, chunk_mb * 1024 * 1024)
+            for i, part in enumerate(parts, 1):
+                for attempt in range(1, retries + 1):
+                    try:
+                        self.upload(part, f"/content/{part.name}")
+                        break
+                    except RuntimeError:
+                        if attempt == retries:
+                            raise
+                        log.warning("upload of %s failed (attempt %d), retrying", part.name, attempt)
+                part.unlink()
+                log.info("uploaded part %d/%d", i, len(parts))
+            return len(parts)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def download_chunked(self, prefix: str, n: int, dest: Path, retries: int = 3) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="scan3d-dl-"))
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with open(dest, "wb") as out:
+                for i in range(n):
+                    name = f"{prefix}{i:03d}"
+                    for attempt in range(1, retries + 1):
+                        try:
+                            self.download(f"/content/{name}", tmp / name)
+                            break
+                        except RuntimeError:
+                            if attempt == retries:
+                                raise
+                            log.warning("download of %s failed (attempt %d), retrying", name, attempt)
+                    out.write((tmp / name).read_bytes())
+                    (tmp / name).unlink()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     
     @contextmanager

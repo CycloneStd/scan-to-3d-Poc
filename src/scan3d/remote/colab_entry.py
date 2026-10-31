@@ -6,6 +6,7 @@ import sys
 import tarfile
 import time
 import traceback
+import hashlib
 from collections import deque
 
 JOB = "/content/job.json"
@@ -47,7 +48,41 @@ def probe(job):
     return info
 
 
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def assemble(job):
+    parts = sorted(f for f in os.listdir("/content") if f.startswith(job["parts_prefix"]))
+    if len(parts) != job["num_parts"]:
+        raise RuntimeError(f"Expected {job['num_parts']} upload parts, found {len(parts)}")
+    with open(job["workspace_tar"], "wb") as out:
+        for p in parts:
+            with open(f"/content/{p}", "rb") as fh:
+                shutil.copyfileobj(fh, out)
+    if sha256(job["workspace_tar"]) != job["sha256"]:
+        raise RuntimeError("Uploaded workspace failed its checksum")
+
+
+def split_result(path, prefix, chunk):
+    n = 0
+    with open(path, "rb") as fh:
+        while True:
+            data = fh.read(chunk)
+            if not data:
+                break
+            with open(f"/content/{prefix}{n:03d}", "wb") as out:
+                out.write(data)
+            n += 1
+    return n
+
+
 def dense(job):
+    assemble(job)
     work = "/content/work"
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
@@ -96,13 +131,14 @@ def dense(job):
             att["failed"] = "stereo_fusion: " + tail[-600:]
             continue
 
-        with tarfile.open("/content/dense_result.tar.gz", "w:gz") as tar:
-            for name in os.listdir(ws):
-                if name.startswith("fused.ply"):
-                    tar.add(f"{ws}/{name}", arcname=name)
+        result_tar = "/content/dense_result.tar.gz"
+        with tarfile.open(result_tar, "w:gz") as tar:
+            tar.add(f"{ws}/fused.ply", arcname="fused.ply")
             tar.add(LOG, arcname="remote_dense.log")
+        n_parts = split_result(result_tar, "dense_result.part", job["chunk_bytes"])
         return {"gpu": gpu, "colmap_spec": spec, "banner": att["banner"], "seconds_patch_match": t_pm,
-                "seconds_fusion": t_fu, "attempts": attempts}
+                "seconds_fusion": t_fu, "attempts": attempts,
+                "result_parts": n_parts, "result_sha256": sha256(result_tar)}
 
     raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
 
