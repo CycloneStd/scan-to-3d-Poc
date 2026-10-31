@@ -23,17 +23,29 @@ class MeshStage(Stage):
             shutil.rmtree(p) if p.is_dir() else p.unlink()
         logf = ctx.run.root / "logs" / "mesh.log"
 
-        mesh = out / "meshed-poisson.ply"
+        full = out / "meshed-poisson.ply"
         r1 = run([binary, "poisson_mesher", "--input_path", ctx.run.stage_dir("06_dense") / "fused.ply",
-                  "--output_path", mesh], log_file=logf)
-        counts = ply_counts(mesh)
-        metrics = {"poisson_seconds": r1.seconds, "mesh_vertices": counts.get("vertex"),
-                   "mesh_faces": counts.get("face")}
+                  "--output_path", full], log_file=logf)
+        c = ply_counts(full)
+        metrics = {"poisson_seconds": r1.seconds, "full_vertices": c.get("vertex"), "full_faces": c.get("face")}
+
+        mesh_for_texture = full
+        ratio = ctx.cfg["mesh"].get("target_face_ratio")
+        if ratio:
+            if "target_face_ratio" not in cm.help_text(binary, "mesh_simplifier"):
+                raise RuntimeError("This COLMAP's mesh_simplifier has no target_face_ratio option; "
+                                   "paste the output of `colmap mesh_simplifier -h`")
+            simplified = out / "meshed-simplified.ply"
+            r2 = run([binary, "mesh_simplifier", "--input_path", full, "--output_path", simplified,
+                      "--MeshSimplification.target_face_ratio", ratio], log_file=logf)
+            c = ply_counts(simplified)
+            metrics.update(simplify_seconds=r2.seconds, mesh_vertices=c.get("vertex"), mesh_faces=c.get("face"))
+            mesh_for_texture = simplified
 
         if ctx.cfg["mesh"]["texture"]:
-            r2 = run([binary, "mesh_texturer",
+            r3 = run([binary, "mesh_texturer",
                       "--workspace_path", ctx.run.stage_dir("05_undistort") / "workspace",
-                      "--input_path", mesh, "--output_path", out / "textured"], log_file=logf)
-            metrics["texture_seconds"] = r2.seconds
+                      "--input_path", mesh_for_texture, "--output_path", out / "textured"], log_file=logf)
+            metrics["texture_seconds"] = r3.seconds
         metrics["files"] = sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file())
         return metrics

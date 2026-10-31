@@ -24,13 +24,20 @@ class ExportStage(Stage):
         if exports.exists():
             shutil.rmtree(exports)
         for p in mesh_dir.rglob("*"):
-            if p.is_file():
+            if p.is_file() and p.name != "meshed-poisson.ply":   # the full-resolution mesh stays in 07_mesh
                 dest = exports / p.relative_to(mesh_dir)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(p, dest)
 
         objs = sorted(exports.rglob("*.obj"))
-        src = objs[0] if objs else exports / "meshed-poisson.ply"
+        simplified = exports / "meshed-simplified.ply"
+        if objs:
+            src = objs[0]
+        elif simplified.exists():
+            src = simplified
+        else:
+            src = mesh_dir / "meshed-poisson.ply"
+
         script = Path(__file__).resolve().parents[1] / "validation" / "blender_check.py"
         run([ctx.cfg["blender"]["binary"], "-b", "--factory-startup", "--python", script, "--",
              "--input", src.resolve(), "--outdir", out.resolve()],
