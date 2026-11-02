@@ -220,3 +220,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 data/
+Dataset/
+runs/
+
+*.tar.gz
