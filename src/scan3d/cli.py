@@ -36,13 +36,13 @@ def cmd_doctor(args):
 def cmd_run(args):
     cfg = load_config(args.config)
     apply_overrides(cfg,args.set)
-    run = _new_run(cfg, args.run_id)
-    (run.root / "config.snapshot.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
     requested = args.stages.split(",") if args.stages else ORDER
     unknown = [s for s in requested if s not in REGISTRY]
     if unknown:
         raise SystemExit(f"Unknown stage(s): {unknown}. Available: {ORDER}")
     names = [s for s in ORDER if s in requested]
+    run = _new_run(cfg, args.run_id)
+    (run.root / "config.snapshot.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
     execute(Context(cfg, run, Manifest(run.manifest_path)), names, REGISTRY, force=args.force)
 
 

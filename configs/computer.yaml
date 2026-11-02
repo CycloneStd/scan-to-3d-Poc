@@ -1,13 +1,13 @@
 project:
-  name: computer-video
+  name: computer
 
 inputs:
   photos_dir: null
-  videos:
-    - Dataset/video/vid1.mp4
+  videos: 
+    - Dataset/video/vid1.MOV
 
 video:
-  fps: 3.0
+  fps: 2.0
   jpeg_quality: 2
 
 validation:
@@ -22,12 +22,14 @@ remote:
   high_mem: true
   auth: null
 
+
 colmap:
   binary: /home/CodeWolf/anaconda3/envs/colmap4/bin/colmap
+
 
 features:
   camera_model: SIMPLE_RADIAL
   use_gpu: false
 
-sparse:
-  mapper: global
+sparse: 
+  mapper: incremental
