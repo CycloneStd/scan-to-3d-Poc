@@ -8,7 +8,7 @@ from .dense import make_upload_workspace
 
 
 class SplatStage(Stage):
-    name =" splat"
+    name ="splat"
     dir_name ="09_splat"
     requires = ("undistort",)
 

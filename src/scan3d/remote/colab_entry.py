@@ -154,7 +154,9 @@ def ensure_micromamba():
 
 
 def install_gsplat():
+
     import torch
+    
     tv = torch.__version__.split("+")[0].split(".")
     tag = f"pt{tv[0]}{tv[1]}cu{(torch.version.cuda or '').replace('.', '')}"
     pip = [sys.executable, "-m", "pip", "install", "-q"]
