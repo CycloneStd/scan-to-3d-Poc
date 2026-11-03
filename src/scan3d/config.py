@@ -23,6 +23,10 @@ DEFAULTS = {
     "mesh": {"texture": True,"target_face_ratio":0.05},
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},
+    "video": {"select": "sharpest", "oversample": 3},
+    "features": {"matcher": "auto", "sequential_overlap": 15},
+    "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,
+              "download_ply": False, "compress": ["sog", "spz"]},
 }
 
 

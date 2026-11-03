@@ -27,14 +27,28 @@ def db_stats(db: Path) -> dict:
         return {"error": str(exc)}
 
 
+def effective_matcher(cfg: dict) -> str:
+    m = cfg["features"]["matcher"]
+    if m == "auto":
+        video_only = not cfg["inputs"].get("photos_dir") and bool(cfg["inputs"].get("videos"))
+        return "sequential" if video_only else "exhaustive"
+    if m not in ("exhaustive", "sequential"):
+        raise ValueError("features.matcher must be auto, exhaustive or sequential")
+    return m
+
+
 class FeaturesStage(Stage):
     name = "features"
     dir_name = "03_features"
     requires = ("validate",)
 
     def config_slice(self, cfg):
-        binary = cfg["colmap"]["binary"]
-        return {"features": cfg["features"], "colmap": cm.version(binary)}
+        base = {k: v for k, v in cfg["features"].items() if k not in ("matcher", "sequential_overlap")}
+        matcher = effective_matcher(cfg)
+        if matcher != "exhaustive":
+            base["matcher"] = matcher
+            base["sequential_overlap"] = cfg["features"]["sequential_overlap"]
+        return {"features": base, "colmap": cm.version(cfg["colmap"]["binary"])}
 
     def run(self, ctx: Context) -> dict:
         cfg = ctx.cfg
@@ -58,8 +72,16 @@ class FeaturesStage(Stage):
                   "--ImageReader.camera_model", cfg["features"]["camera_model"],
                   cm.gpu_flag(binary, "feature_extractor", "FeatureExtraction"), use_gpu],
                  log_file=logf)
-        r2 = run([binary, "exhaustive_matcher", "--database_path", db,
-                  cm.gpu_flag(binary, "exhaustive_matcher", "FeatureMatching"), use_gpu],
-                 log_file=logf)
-        return {"db": db_stats(db), "extract_seconds": r1.seconds, "match_seconds": r2.seconds,
-                "peak_children_rss_mb": r2.peak_children_rss_mb}
+
+        matcher = effective_matcher(cfg)
+        cmd = [binary, f"{matcher}_matcher", "--database_path", db,
+               cm.gpu_flag(binary, f"{matcher}_matcher", "FeatureMatching"), use_gpu]
+        if matcher == "sequential":
+            opt = "--SequentialMatching.overlap"
+            if opt not in cm.help_text(binary, "sequential_matcher"):
+                raise RuntimeError("sequential_matcher has no SequentialMatching.overlap option; "
+                                   "paste the output of `colmap sequential_matcher -h`")
+            cmd += [opt, cfg["features"]["sequential_overlap"]]
+        r2 = run(cmd, log_file=logf)
+        return {"db": db_stats(db), "matcher": matcher, "extract_seconds": r1.seconds,
+                "match_seconds": r2.seconds, "peak_children_rss_mb": r2.peak_children_rss_mb}

@@ -11,7 +11,7 @@ from .config import load_config,apply_overrides
 from .logging_setup import setup_logging
 from .pipeline import Context, execute
 from .project import Manifest, RunDir
-from .stages import ORDER, REGISTRY
+from .stages import ORDER, REGISTRY, TRACKS
 from .system import doctor as doctor_mod
 
 RUNS = Path("runs")
@@ -36,7 +36,7 @@ def cmd_doctor(args):
 def cmd_run(args):
     cfg = load_config(args.config)
     apply_overrides(cfg,args.set)
-    requested = args.stages.split(",") if args.stages else ORDER
+    requested = args.stages.split(",") if args.stages else TRACKS[args.track]
     unknown = [s for s in requested if s not in REGISTRY]
     if unknown:
         raise SystemExit(f"Unknown stage(s): {unknown}. Available: {ORDER}")
@@ -96,6 +96,8 @@ def main(argv=None):
     r.add_argument("--stages", help=f"comma list from: {','.join(ORDER)}")
     r.add_argument("--force", action="store_true", help="re-run even if up to date")
     r.add_argument("--set",action="append",metavar="KEY=VALUE",help="override a config value, e.g. --set sparse.mapper=global")
+    r.add_argument("--track", choices=list(TRACKS), default="mesh",
+                   help="default stage set when --stages is not given")
     r.set_defaults(fn=cmd_run)
 
     s = sub.add_parser("status", help="show stage status of a run")

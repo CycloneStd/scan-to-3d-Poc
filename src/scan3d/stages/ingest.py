@@ -4,6 +4,8 @@ import json
 import shutil
 from pathlib import Path
 
+import cv2
+
 from ..pipeline import Context, Stage
 from ..project import files_signature
 from ..utils.proc import run
@@ -23,12 +25,30 @@ def _videos(cfg: dict) -> list[Path]:
     return [Path(v) for v in cfg["inputs"].get("videos") or []]
 
 
+def keep_sharpest(gdir: Path, window: int) -> None:
+    files = sorted(gdir.glob("*.jpg"))
+    for i in range(0, len(files), window):
+        chunk = files[i:i + window]
+        scores = []
+        for f in chunk:
+            gray = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
+            scores.append(float(cv2.Laplacian(gray, cv2.CV_64F).var()) if gray is not None else -1.0)
+        best = max(range(len(chunk)), key=scores.__getitem__)
+        for j, f in enumerate(chunk):
+            if j != best:
+                f.unlink()
+
+
 class IngestStage(Stage):
     name = "ingest"
     dir_name = "01_ingest"
 
     def config_slice(self, cfg):
-        return {"inputs": cfg["inputs"], "video": cfg["video"]}
+        video = {k: v for k, v in cfg["video"].items() if k not in ("select", "oversample")}
+        if _videos(cfg):
+            video["select"] = cfg["video"]["select"]
+            video["oversample"] = cfg["video"]["oversample"]
+        return {"inputs": cfg["inputs"], "video": video}
 
     def input_signature(self, ctx):
         return files_signature(_photos(ctx.cfg) + _videos(ctx.cfg))
@@ -48,18 +68,18 @@ class IngestStage(Stage):
                 (gdir / p.name).symlink_to(p.resolve())
             groups["photos"] = [f"images/photos/{p.name}" for p in photos]
 
-        fps = ctx.cfg["video"]["fps"]
-        quality = ctx.cfg["video"]["jpeg_quality"]
+        vcfg = ctx.cfg["video"]
+        sharpest = vcfg.get("select", "sharpest") == "sharpest"
+        over = int(vcfg.get("oversample", 3)) if sharpest else 1
         for v in _videos(ctx.cfg):
             group = f"video_{v.stem}"
             gdir = images / group
             gdir.mkdir(parents=True)
-            # ffmpeg applies the phone's rotation metadata automatically
-            run(
-                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", v, "-vf", f"fps={fps}",
-                 "-q:v", quality, gdir / f"{v.stem}_%05d.jpg"],
-                log_file=ctx.run.root / "logs" / "ingest_ffmpeg.log",
-            )
+            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", v, "-vf",
+                 f"fps={vcfg['fps'] * over}", "-q:v", vcfg["jpeg_quality"], gdir / f"{v.stem}_%05d.jpg"],
+                log_file=ctx.run.root / "logs" / "ingest_ffmpeg.log")
+            if over > 1:
+                keep_sharpest(gdir, over)
             groups[group] = sorted(f"images/{group}/{f.name}" for f in gdir.glob("*.jpg"))
 
         (out / "ingest.json").write_text(json.dumps({"groups": groups}, indent=2))

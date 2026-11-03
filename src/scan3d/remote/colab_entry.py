@@ -7,6 +7,7 @@ import tarfile
 import time
 import traceback
 import hashlib
+import glob
 from collections import deque
 
 JOB = "/content/job.json"
@@ -23,15 +24,19 @@ def sh(cmd, timeout=120):
         return f"ERROR: {exc}"
 
 
-def stream(cmd):
+def stream(cmd, cwd=None, env=None, every=1):
     print("$", " ".join(cmd), flush=True)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            bufsize=1, cwd=cwd, env=env)
     tail = deque(maxlen=30)
+    n = 0
     with open(LOG, "a") as fh:
         for line in proc.stdout:
             fh.write(line)
             tail.append(line)
-            print(line, end="", flush=True)
+            n += 1
+            if every == 1 or n % every == 0 or "rror" in line:
+                print(line, end="", flush=True)
     return proc.wait(), "".join(tail)
 
 
@@ -142,8 +147,115 @@ def dense(job):
 
     raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
 
+def ensure_micromamba():
+    if not os.path.exists(MM):
+        sh("mkdir -p /content/bin && curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest "
+           "| tar -xj -C /content bin/micromamba", timeout=300)
 
-ACTIONS = {"probe": probe, "dense": dense}
+
+def install_gsplat():
+    import torch
+    tv = torch.__version__.split("+")[0].split(".")
+    tag = f"pt{tv[0]}{tv[1]}cu{(torch.version.cuda or '').replace('.', '')}"
+    pip = [sys.executable, "-m", "pip", "install", "-q"]
+    attempts, ok = [], False
+    for label, cmd in (
+        (f"prebuilt wheel {tag}", pip + ["gsplat", "--index-url", f"https://docs.gsplat.studio/whl/{tag}",
+                                         "--extra-index-url", "https://pypi.org/simple"]),
+        ("pypi source build", pip + ["gsplat"]),
+    ):
+        rc, tail = stream(cmd)
+        attempts.append({"method": label, "rc": rc, "tail": tail[-300:] if rc else ""})
+        if rc == 0:
+            ok = True
+            break
+    if not ok:
+        raise RuntimeError("gsplat install failed: " + json.dumps(attempts, indent=2))
+    ver = sh(f"{sys.executable} -m pip show gsplat | grep -i '^Version'").split(":")[-1].strip().split("+")[0]
+    src = "/content/gsplat_src"
+    shutil.rmtree(src, ignore_errors=True)
+    url = "https://github.com/nerfstudio-project/gsplat"
+    rc, _ = stream(["git", "clone", "--depth", "1", "--branch", f"v{ver}", url, src])
+    if rc != 0:
+        rc, _ = stream(["git", "clone", "--depth", "1", url, src])
+        if rc != 0:
+            raise RuntimeError("could not clone the gsplat examples")
+    rc, tail = stream(pip + ["-r", f"{src}/examples/requirements.txt"])
+    if rc != 0:
+        raise RuntimeError("gsplat example requirements failed:\n" + tail[-800:])
+    return {"gsplat_version": ver, "torch": torch.__version__, "install_attempts": attempts}, src
+
+
+def compress_splat(ply, out_dir, formats):
+    results = {}
+    ensure_micromamba()
+    node = "/content/node"
+    if not os.path.exists(f"{node}/bin/npx"):
+        rc, tail = stream([MM, "create", "-y", "-p", node, "-c", "conda-forge", "nodejs"])
+        if rc != 0:
+            return {"error": "nodejs install failed: " + tail[-300:]}
+    env = dict(os.environ, PATH=f"{node}/bin:" + os.environ.get("PATH", ""))
+    for fmt in formats:
+        dst = f"{out_dir}/scene.{fmt}"
+        rc, tail = stream([f"{node}/bin/npx", "--yes", "@playcanvas/splat-transform", ply, dst], env=env)
+        results[fmt] = True if (rc == 0 and os.path.exists(dst)) else "failed: " + tail[-300:]
+    return results
+
+
+def splat(job):
+    assemble(job)
+    work = "/content/work"
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    with tarfile.open(job["workspace_tar"]) as tar:
+        tar.extractall(work)
+    ws = f"{work}/workspace"
+    gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
+
+    t0 = time.time()
+    info, src = install_gsplat()
+    t_install = round(time.time() - t0, 1)
+
+    steps = int(job["max_steps"])
+    res = "/content/splat_run"
+    shutil.rmtree(res, ignore_errors=True)
+    t0 = time.time()
+    rc, tail = stream([sys.executable, f"{src}/examples/simple_trainer.py", "default",
+                       "--data_dir", ws, "--data_factor", str(job["data_factor"]), "--result_dir", res,
+                       "--max_steps", str(steps), "--disable_viewer", "--eval_steps", str(steps),
+                       "--save_ply", "--ply_steps", str(steps)], every=200)
+    t_train = round(time.time() - t0, 1)
+    if rc != 0:
+        raise RuntimeError("training failed:\n" + tail[-1500:])
+
+    plys = sorted(glob.glob(f"{res}/ply/*.ply"))
+    if not plys:
+        raise RuntimeError("training finished but no PLY was found:\n" + sh(f"find {res} -maxdepth 2 | head -40"))
+    stats_files = sorted(glob.glob(f"{res}/stats/val_step*.json"))
+    stats = json.load(open(stats_files[-1])) if stats_files else {}
+
+    out_dir = "/content/splat_out"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    os.makedirs(out_dir)
+    comp = compress_splat(plys[-1], out_dir, job["compress"])
+    if job["download_ply"] or not any(comp.get(f) is True for f in job["compress"]):
+        shutil.copy(plys[-1], f"{out_dir}/scene.ply")
+    shutil.copy(LOG, f"{out_dir}/splat_train.log")
+    json.dump(stats, open(f"{out_dir}/stats.json", "w"), indent=2)
+
+    result_tar = "/content/splat_result.tar.gz"
+    with tarfile.open(result_tar, "w:gz") as tar:
+        for name in os.listdir(out_dir):
+            tar.add(f"{out_dir}/{name}", arcname=name)
+    n_parts = split_result(result_tar, "splat_result.part", job["chunk_bytes"])
+    return {**info, "gpu": gpu, "seconds_install": t_install, "seconds_train": t_train,
+            "psnr": stats.get("psnr"), "ssim": stats.get("ssim"), "lpips": stats.get("lpips"),
+            "num_gaussians": stats.get("num_GS"), "compress": comp,
+            "ply_mb": round(os.path.getsize(plys[-1]) / 1e6, 1),
+            "result_parts": n_parts, "result_sha256": sha256(result_tar)}
+
+
+ACTIONS = {"probe": probe, "dense": dense, "splat":splat}
 
 
 def main():
