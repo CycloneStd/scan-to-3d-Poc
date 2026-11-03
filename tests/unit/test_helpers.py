@@ -1,5 +1,47 @@
-from scan3d.config import apply_overrides
+import os
+
+import pytest
+
+from scan3d.config import apply_overrides, load_config
 from scan3d.stages.sparse import parse_stats,registered_per_group
+
+
+def test_load_config_expands_binary_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCAN3D_COLMAP", "/tools/colmap")
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "project: {name: test}\n"
+        "inputs: {photos_dir: images, videos: []}\n"
+        "video: {fps: 2, jpeg_quality: 2}\n"
+        "validation: {min_short_side: 1, blur_ratio: 0.5, min_brightness: 1, max_brightness: 2}\n"
+        "remote: {session: test, gpu: T4}\n"
+        "colmap: {binary: '${SCAN3D_COLMAP}'}\n"
+        "blender: {binary: '~/tools/blender'}\n"
+        "features: {camera_model: SIMPLE_RADIAL, use_gpu: false}\n"
+        "sparse: {mapper: incremental}\n"
+    )
+
+    cfg = load_config(path)
+
+    assert cfg["colmap"]["binary"] == "/tools/colmap"
+    assert cfg["blender"]["binary"] == os.path.expanduser("~/tools/blender")
+
+
+def test_load_config_rejects_unset_binary_environment_variable(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "project: {name: test}\n"
+        "inputs: {photos_dir: images, videos: []}\n"
+        "video: {fps: 2, jpeg_quality: 2}\n"
+        "validation: {min_short_side: 1, blur_ratio: 0.5, min_brightness: 1, max_brightness: 2}\n"
+        "remote: {session: test, gpu: T4}\n"
+        "colmap: {binary: '${SCAN3D_UNSET_COLMAP}'}\n"
+        "features: {camera_model: SIMPLE_RADIAL, use_gpu: false}\n"
+        "sparse: {mapper: incremental}\n"
+    )
+
+    with pytest.raises(ValueError, match="colmap.binary uses an environment variable that is not set"):
+        load_config(path)
 
 
 def test_overrides():

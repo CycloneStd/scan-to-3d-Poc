@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -25,6 +26,13 @@ DEFAULTS = {
 }
 
 
+def _expand(value: str, key: str) -> str:
+    out = os.path.expanduser(os.path.expandvars(value))
+    if "$" in out:
+        raise ValueError(f"{key} uses an environment variable that is not set: {value}")
+    return out
+
+
 def load_config(path: str | Path) -> dict:
     cfg = yaml.safe_load(Path(path).read_text())
     problems = []
@@ -39,6 +47,8 @@ def load_config(path: str | Path) -> dict:
         node = cfg.setdefault(section, {})
         for k, v in values.items():
             node.setdefault(k, v)
+    cfg["colmap"]["binary"] = _expand(cfg["colmap"]["binary"], "colmap.binary")
+    cfg["blender"]["binary"] = _expand(cfg["blender"]["binary"], "blender.binary")
     return cfg
 
 
