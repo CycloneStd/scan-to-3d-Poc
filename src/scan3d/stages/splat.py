@@ -18,7 +18,7 @@ class SplatStage(Stage):
     def run(self,ctx:Context)-> dict:
         sc = ctx.cfg["splat"]
         out = ctx.run.stage_dir(self.dir_name)
-        ws = ctx.run.stage_dir("05_ndistort")/"workspace"
+        ws = ctx.run.stage_dir("05_undistort")/"workspace"
         staged = out/"upload_ws"/"workspace"
         make_upload_workspace(ws, staged, int(sc["upload_jpeg_quality"]))
         tar = out/"workspace.tar.gz"
