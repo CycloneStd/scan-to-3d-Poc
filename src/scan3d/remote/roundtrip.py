@@ -17,7 +17,7 @@ def roundtrip(cfg: dict, out: Path, tar: Path, digest: str, job_extra: dict, res
                        fallback_gpus=r.get("gpu_fallbacks", []))
     result_tar = out / "result.tar.gz"
     result = None
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
         try:
             with ex.open_session():
                 n = ex.upload_chunked(tar, "ws.part", chunk_mb)
@@ -29,7 +29,7 @@ def roundtrip(cfg: dict, out: Path, tar: Path, digest: str, job_extra: dict, res
             break
         except RuntimeError as exc:
             log.warning("Remote attempt %d failed: %s", attempt, exc)
-            if attempt == 2:
+            if attempt == 3:
                 raise
     if not result or not result.get("ok"):
         raise RuntimeError("Remote job failed:\n" + (result or {}).get("error", "unknown error"))
