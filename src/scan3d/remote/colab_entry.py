@@ -8,6 +8,7 @@ import time
 import traceback
 import hashlib
 import glob
+import shlex
 from collections import deque
 
 JOB = "/content/job.json"
@@ -153,10 +154,37 @@ def ensure_micromamba():
            "| tar -xj -C /content bin/micromamba", timeout=300)
 
 
-def install_gsplat():
+FUSED_SSIM_SHIM = '''
+import torch
+import torch.nn.functional as F
 
+
+def _window(C, device, dtype, win=11, sigma=1.5):
+    x = torch.arange(win, dtype=torch.float32) - win // 2
+    g = torch.exp(-(x ** 2) / (2 * sigma ** 2))
+    g = g / g.sum()
+    return (g[:, None] @ g[None, :]).to(device=device, dtype=dtype).expand(C, 1, win, win).contiguous()
+
+
+def fused_ssim(img1, img2, padding="same", train=True):
+    """Pure-PyTorch SSIM (mean over image). img*: (B, C, H, W)."""
+    C = img1.shape[1]
+    w = _window(C, img1.device, img1.dtype)
+    pad = 5 if padding == "same" else 0
+    mu1 = F.conv2d(img1, w, padding=pad, groups=C)
+    mu2 = F.conv2d(img2, w, padding=pad, groups=C)
+    mu1_sq, mu2_sq, mu12 = mu1 * mu1, mu2 * mu2, mu1 * mu2
+    s1 = F.conv2d(img1 * img1, w, padding=pad, groups=C) - mu1_sq
+    s2 = F.conv2d(img2 * img2, w, padding=pad, groups=C) - mu2_sq
+    s12 = F.conv2d(img1 * img2, w, padding=pad, groups=C) - mu12
+    c1, c2 = 0.01 ** 2, 0.03 ** 2
+    ssim_map = ((2 * mu12 + c1) * (2 * s12 + c2)) / ((mu1_sq + mu2_sq + c1) * (s1 + s2 + c2))
+    return ssim_map.mean()
+'''
+
+
+def install_gsplat():
     import torch
-    
     tv = torch.__version__.split("+")[0].split(".")
     tag = f"pt{tv[0]}{tv[1]}cu{(torch.version.cuda or '').replace('.', '')}"
     pip = [sys.executable, "-m", "pip", "install", "-q"]
@@ -174,6 +202,7 @@ def install_gsplat():
     if not ok:
         raise RuntimeError("gsplat install failed: " + json.dumps(attempts, indent=2))
     ver = sh(f"{sys.executable} -m pip show gsplat | grep -i '^Version'").split(":")[-1].strip().split("+")[0]
+
     src = "/content/gsplat_src"
     shutil.rmtree(src, ignore_errors=True)
     url = "https://github.com/nerfstudio-project/gsplat"
@@ -182,11 +211,37 @@ def install_gsplat():
         rc, _ = stream(["git", "clone", "--depth", "1", url, src])
         if rc != 0:
             raise RuntimeError("could not clone the gsplat examples")
-    rc, tail = stream(pip + ["-r", f"{src}/examples/requirements.txt"])
-    if rc != 0:
-        raise RuntimeError("gsplat example requirements failed:\n" + tail[-800:])
-    return {"gsplat_version": ver, "torch": torch.__version__, "install_attempts": attempts}, src
 
+    # install example requirements one at a time so a single failure is visible and isolated
+    failed = []
+    for line in open(f"{src}/examples/requirements.txt"):
+        req = line.strip()
+        if not req or req.startswith("#"):
+            continue
+        extra = ["--no-build-isolation"] if ("fused" in req.lower() and "ssim" in req.lower()) else []
+        rc, tail = stream(pip + extra + shlex.split(req))
+        if rc != 0:
+            failed.append({"requirement": req, "tail": tail[-400:]})
+
+    env = dict(os.environ)
+    used_shim = False
+    rc, _ = stream([sys.executable, "-c", "import fused_ssim"])
+    if rc != 0:
+        os.makedirs("/content/shims", exist_ok=True)
+        open("/content/shims/fused_ssim.py", "w").write(FUSED_SSIM_SHIM)
+        env["PYTHONPATH"] = "/content/shims:" + env.get("PYTHONPATH", "")
+        used_shim = True
+
+    missing = []
+    for mod in ("pycolmap", "tyro", "torchmetrics", "lpips", "nerfview", "viser", "imageio", "fused_ssim"):
+        if subprocess.run([sys.executable, "-c", f"import {mod}"], capture_output=True, env=env).returncode != 0:
+            missing.append(mod)
+    if missing:
+        raise RuntimeError(f"modules missing after install: {missing}\n"
+                           f"failed requirements: {json.dumps(failed, indent=2)}")
+    return ({"gsplat_version": ver, "torch": torch.__version__, "install_attempts": attempts,
+             "failed_requirements": [f["requirement"] for f in failed],
+             "fused_ssim": "pytorch shim" if used_shim else "cuda"}, src, env)
 
 def compress_splat(ply, out_dir, formats):
     results = {}
@@ -215,7 +270,7 @@ def splat(job):
     gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
 
     t0 = time.time()
-    info, src = install_gsplat()
+    info, src, train_env = install_gsplat()
     t_install = round(time.time() - t0, 1)
 
     steps = int(job["max_steps"])
@@ -225,7 +280,7 @@ def splat(job):
     rc, tail = stream([sys.executable, f"{src}/examples/simple_trainer.py", "default",
                        "--data_dir", ws, "--data_factor", str(job["data_factor"]), "--result_dir", res,
                        "--max_steps", str(steps), "--disable_viewer", "--eval_steps", str(steps),
-                       "--save_ply", "--ply_steps", str(steps)], every=200)
+                       "--save_ply", "--ply_steps", str(steps)], env=train_env, every=200)
     t_train = round(time.time() - t0, 1)
     if rc != 0:
         raise RuntimeError("training failed:\n" + tail[-1500:])
@@ -257,7 +312,13 @@ def splat(job):
             "result_parts": n_parts, "result_sha256": sha256(result_tar)}
 
 
-ACTIONS = {"probe": probe, "dense": dense, "splat":splat}
+def gsplat_check(job):
+    t0 = time.time()
+    info, src, _ = install_gsplat()
+    return {**info, "seconds": round(time.time() - t0, 1)}
+
+
+ACTIONS = {"probe": probe, "dense": dense, "splat": splat, "gsplat_check": gsplat_check}
 
 
 def main():

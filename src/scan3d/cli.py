@@ -60,7 +60,7 @@ def cmd_remote_probe(args):
     r = cfg["remote"]
     ex = ColabExecutor(r["session"], r.get("gpu"), r.get("high_mem", True), r.get("auth"))
     with ex.open_session(keep=args.keep):
-        result = ex.run_job({"action": "probe"}, run.root / "remote")
+        result = ex.run_job({"action": args.action}, run.root / "remote")
     print(json.dumps(result, indent=2))
 
 
@@ -108,6 +108,7 @@ def main(argv=None):
     rp.add_argument("--config", default="configs/default.yaml")
     rp.add_argument("--run-id")
     rp.add_argument("--keep", action="store_true", help="leave the VM running afterwards")
+    rp.add_argument("--action", default="probe", choices=["probe", "gsplat_check"])
     rp.set_defaults(fn=cmd_remote_probe)
 
     rep = sub.add_parser("report", help="write runs/<id>/report.md")
