@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -183,6 +184,25 @@ def fused_ssim(img1, img2, padding="same", train=True):
 '''
 
 
+SMOKE = '''
+import torch
+from gsplat import rasterization
+dev = "cuda"
+N = 100
+means = torch.randn(N, 3, device=dev)
+means[:, 2] += 3
+quats = torch.nn.functional.normalize(torch.randn(N, 4, device=dev), dim=-1)
+scales = torch.rand(N, 3, device=dev) * 0.1 + 0.02
+opac = torch.rand(N, device=dev)
+colors = torch.rand(N, 3, device=dev)
+K = torch.tensor([[100.0, 0, 64], [0, 100.0, 64], [0, 0, 1]], device=dev)[None]
+view = torch.eye(4, device=dev)[None]
+img, alpha, _ = rasterization(means, quats, scales, opac, colors, view, K, 128, 128)
+torch.cuda.synchronize()
+print("rasterization OK", tuple(img.shape))
+'''
+
+
 def install_gsplat():
     import torch
     tv = torch.__version__.split("+")[0].split(".")
@@ -212,35 +232,51 @@ def install_gsplat():
         if rc != 0:
             raise RuntimeError("could not clone the gsplat examples")
 
-    # install example requirements one at a time so a single failure is visible and isolated
     failed = []
     for line in open(f"{src}/examples/requirements.txt"):
         req = line.strip()
-        if not req or req.startswith("#"):
+        # keep Colab's numpy: the example's numpy<2 pin breaks other preinstalled packages
+        if not req or req.startswith("#") or req.lower().startswith("numpy"):
             continue
-        extra = ["--no-build-isolation"] if ("fused" in req.lower() and "ssim" in req.lower()) else []
+        extra = ["--no-build-isolation"] if "fused" in req.lower() else []
         rc, tail = stream(pip + extra + shlex.split(req))
         if rc != 0:
             failed.append({"requirement": req, "tail": tail[-400:]})
 
     env = dict(os.environ)
     used_shim = False
-    rc, _ = stream([sys.executable, "-c", "import fused_ssim"])
-    if rc != 0:
+    if subprocess.run([sys.executable, "-c", "import fused_ssim"], capture_output=True).returncode != 0:
         os.makedirs("/content/shims", exist_ok=True)
         open("/content/shims/fused_ssim.py", "w").write(FUSED_SSIM_SHIM)
         env["PYTHONPATH"] = "/content/shims:" + env.get("PYTHONPATH", "")
         used_shim = True
 
-    missing = []
-    for mod in ("pycolmap", "tyro", "torchmetrics", "lpips", "nerfview", "viser", "imageio", "fused_ssim"):
-        if subprocess.run([sys.executable, "-c", f"import {mod}"], capture_output=True, env=env).returncode != 0:
-            missing.append(mod)
-    if missing:
-        raise RuntimeError(f"modules missing after install: {missing}\n"
-                           f"failed requirements: {json.dumps(failed, indent=2)}")
+    # The real gate: the trainer itself must be able to start (this imports everything it needs)
+    trainer = f"{src}/examples/simple_trainer.py"
+    renames = {"cv2": "opencv-python", "sklearn": "scikit-learn", "yaml": "pyyaml", "PIL": "Pillow"}
+    help_rc, help_tail = 1, ""
+    for _ in range(4):
+        help_rc, help_tail = stream([sys.executable, trainer, "default", "--help"], env=env, every=100)
+        if help_rc == 0:
+            break
+        m = re.search(r"No module named '([\w.]+)'", help_tail)
+        if not m:
+            break
+        mod = m.group(1).split(".")[0]
+        rc2, _ = stream(pip + [renames.get(mod, mod)])
+        if rc2 != 0:
+            break
+    if help_rc != 0:
+        raise RuntimeError("the gsplat trainer cannot start:\n" + help_tail[-1500:] +
+                           "\nfailed requirements: " + json.dumps([f["requirement"] for f in failed]))
+
+    rc, tail = stream([sys.executable, "-c", SMOKE], env=env)
+    if rc != 0:
+        raise RuntimeError("GPU rasterization smoke test failed:\n" + tail[-1200:])
+
     return ({"gsplat_version": ver, "torch": torch.__version__, "install_attempts": attempts,
              "failed_requirements": [f["requirement"] for f in failed],
+             "numpy": sh(f"{sys.executable} -c 'import numpy; print(numpy.__version__)'"),
              "fused_ssim": "pytorch shim" if used_shim else "cuda"}, src, env)
 
 def compress_splat(ply, out_dir, formats):
