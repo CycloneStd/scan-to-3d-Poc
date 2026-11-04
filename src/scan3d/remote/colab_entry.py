@@ -235,7 +235,6 @@ def install_gsplat():
     failed = []
     for line in open(f"{src}/examples/requirements.txt"):
         req = line.strip()
-        # keep Colab's numpy: the example's numpy<2 pin breaks other preinstalled packages
         if not req or req.startswith("#") or req.lower().startswith("numpy"):
             continue
         extra = ["--no-build-isolation"] if "fused" in req.lower() else []
@@ -251,7 +250,11 @@ def install_gsplat():
         env["PYTHONPATH"] = "/content/shims:" + env.get("PYTHONPATH", "")
         used_shim = True
 
-    # The real gate: the trainer itself must be able to start (this imports everything it needs)
+
+    ds = f"{src}/examples/datasets"
+    if os.path.isdir(ds) and not os.path.exists(f"{ds}/__init__.py"):
+        open(f"{ds}/__init__.py", "w").close()
+
     trainer = f"{src}/examples/simple_trainer.py"
     renames = {"cv2": "opencv-python", "sklearn": "scikit-learn", "yaml": "pyyaml", "PIL": "Pillow"}
     help_rc, help_tail = 1, ""
@@ -263,11 +266,18 @@ def install_gsplat():
         if not m:
             break
         mod = m.group(1).split(".")[0]
+        already_installed = subprocess.run(
+            [sys.executable, "-c", f"import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('{mod}') else 1)"],
+            capture_output=True).returncode == 0
+        if already_installed:
+            break            # present but failing to import (a conflict): pip cannot fix this
         rc2, _ = stream(pip + [renames.get(mod, mod)])
         if rc2 != 0:
             break
     if help_rc != 0:
+        diag = sh(f"ls -la {ds}; {sys.executable} -c \"import datasets; print(datasets.__file__)\"")
         raise RuntimeError("the gsplat trainer cannot start:\n" + help_tail[-1500:] +
+                           "\n--- diagnostics ---\n" + diag +
                            "\nfailed requirements: " + json.dumps([f["requirement"] for f in failed]))
 
     rc, tail = stream([sys.executable, "-c", SMOKE], env=env)
