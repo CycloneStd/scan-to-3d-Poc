@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,35 @@ from .bundle import split_file
 
 log = logging.getLogger("scan3d.remote")
 ENTRY = Path(__file__).with_name("colab_entry.py")
+LAUNCH_CODE = """
+import subprocess, sys
+p = subprocess.run(f"nohup {sys.executable} /content/colab_entry.py > /content/job.log 2>&1 & echo $!",
+                   shell=True, capture_output=True, text=True)
+print('@@PID@@' + p.stdout.strip())
+"""
+
+POLL_CODE = """
+import json, os
+pid, offset = __PID__, __OFFSET__
+
+def alive(pid):
+    try:
+        return open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except OSError:
+        return False
+
+chunk, new_offset = '', offset
+try:
+    with open('/content/job.log', 'rb') as f:
+        f.seek(offset)
+        data = f.read(6000)
+        new_offset = offset + len(data)
+        chunk = data.decode('utf-8', 'replace')
+except OSError:
+    pass
+print('@@STATE@@' + json.dumps({'done': os.path.exists('/content/result.json'), 'alive': alive(pid),
+                                'chunk': chunk, 'offset': new_offset}))
+"""
 
 
 class SessionLost(RuntimeError):
@@ -90,6 +120,45 @@ class ColabExecutor:
         except subprocess.TimeoutExpired:
             log.warning("keepalive ping timed out")
 
+    def _exec_code(self, code: str, timeout: int = 120) -> str:
+        p = subprocess.run(self._base() + ["exec", "-s", self.session], input=code, text=True,
+                           capture_output=True, timeout=timeout)
+        if p.returncode != 0:
+            raise RuntimeError(f"colab exec failed: {(p.stderr or p.stdout)[-300:]}")
+        return p.stdout
+
+    def run_background(self, poll_s: int = 30, max_hours: float = 8.0) -> None:
+        """Launch colab_entry.py detached on the VM, then poll with short calls until it finishes."""
+        self.upload(ENTRY, "/content/colab_entry.py")
+        m = re.search(r"@@PID@@(\d+)", self._exec_code(LAUNCH_CODE))
+        if not m:
+            raise RuntimeError("could not launch the remote job")
+        pid, offset, failures = int(m.group(1)), 0, 0
+        deadline = time.time() + max_hours * 3600
+        while time.time() < deadline:
+            try:
+                out = self._exec_code(POLL_CODE.replace("__PID__", str(pid)).replace("__OFFSET__", str(offset)))
+                st = json.loads(out.split("@@STATE@@", 1)[1].strip().splitlines()[0])
+                failures = 0
+            except (RuntimeError, subprocess.TimeoutExpired, IndexError, ValueError):
+                failures += 1
+                if failures >= 8 and not self.alive():
+                    raise SessionLost(f"Session '{self.session}' disappeared while the job was running")
+                if failures >= 30:
+                    raise RuntimeError("lost contact with the remote job")
+                time.sleep(poll_s)
+                continue
+            if st["chunk"]:
+                print(st["chunk"], end="", flush=True)
+            offset = st["offset"]
+            if st["done"]:
+                return
+            if not st["alive"]:
+                raise RuntimeError("the remote job exited without writing a result; see the log above")
+            if len(st["chunk"]) < 6000:
+                time.sleep(poll_s)
+        raise RuntimeError(f"the remote job did not finish within {max_hours} hours")
+
     def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 4, retries: int = 3) -> int:
         tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
         try:
@@ -160,6 +229,6 @@ class ColabExecutor:
         self.upload(job_file, "/content/job.json")
         for local, remote in (uploads or {}).items():
             self.upload(local, remote)
-        self.exec_file(ENTRY)
+        self.run_background()
         self.download("/content/result.json", out_dir / "result.json")
         return json.loads((out_dir / "result.json").read_text())

@@ -433,7 +433,9 @@ def main():
     except Exception:
         result = {"ok": False, "action": job.get("action"), "error": traceback.format_exc()}
     result["seconds"] = round(time.time() - t0, 2)
-    json.dump(result, open(RESULT, "w"), indent=2)
+    with open(RESULT + ".tmp", "w") as fh:
+        json.dump(result, fh, indent=2)
+    os.replace(RESULT + ".tmp", RESULT)
     print(json.dumps({k: v for k, v in result.items() if k != "data"}, indent=2))
 
 
