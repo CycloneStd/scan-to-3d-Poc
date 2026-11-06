@@ -14,6 +14,7 @@ from .bundle import split_file
 
 log = logging.getLogger("scan3d.remote")
 ENTRY = Path(__file__).with_name("colab_entry.py")
+
 LAUNCH_CODE = """
 import subprocess, sys
 p = subprocess.run(f"nohup {sys.executable} /content/colab_entry.py > /content/job.log 2>&1 & echo $!",
@@ -25,11 +26,13 @@ POLL_CODE = """
 import json, os
 pid, offset = __PID__, __OFFSET__
 
+
 def alive(pid):
     try:
         return open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1].split()[0] != 'Z'
     except OSError:
         return False
+
 
 chunk, new_offset = '', offset
 try:
@@ -46,7 +49,7 @@ print('@@STATE@@' + json.dumps({'done': os.path.exists('/content/result.json'), 
 
 
 class SessionLost(RuntimeError):
-    """The Colab VM no longer exists on the server (reclaimed or disconnected)."""
+    """The Colab VM is not reachable (reclaimed, disconnected, or never became ready)."""
 
 
 class ColabExecutor:
@@ -58,6 +61,7 @@ class ColabExecutor:
         self.fallback_gpus = list(fallback_gpus)
         self.io_timeout = io_timeout
         self.active_gpu = None
+        self.last_output = ""
 
     def _base(self) -> list[str]:
         return ["colab"] + (["--auth", self.auth] if self.auth else [])
@@ -66,21 +70,41 @@ class ColabExecutor:
         cmd = self._base() + list(args)
         log.info("$ %s", " ".join(cmd))
         try:
-            return subprocess.run(cmd, timeout=timeout).returncode == 0
+            p = subprocess.run(cmd, timeout=timeout, capture_output=True, text=True)
         except subprocess.TimeoutExpired:
+            self.last_output = f"timed out after {timeout}s"
             log.warning("colab %s timed out after %ss", " ".join(args[:2]), timeout)
             return False
+        self.last_output = ((p.stdout or "") + (p.stderr or "")).strip()
+        if self.last_output:
+            print(self.last_output, flush=True)
+        return p.returncode == 0
 
     def _colab(self, *args: str, timeout: int | None = None) -> None:
         if not self._try_colab(*args, timeout=timeout):
-            raise RuntimeError(f"colab command failed: colab {' '.join(args[:4])}")
+            raise RuntimeError(f"colab {' '.join(args[:2])} failed: {self.last_output[-400:]}")
+
+    def _exec_code(self, code: str, timeout: int = 120) -> str:
+        p = subprocess.run(self._base() + ["exec", "-s", self.session], input=code, text=True,
+                           capture_output=True, timeout=timeout)
+        if p.returncode != 0:
+            raise RuntimeError(f"colab exec failed: {(p.stderr or p.stdout)[-300:]}")
+        return p.stdout
 
     def alive(self) -> bool:
+        """Functional check: the VM must run code and answer."""
         try:
-            p = subprocess.run(self._base() + ["sessions"], capture_output=True, text=True, timeout=60)
-        except subprocess.TimeoutExpired:
+            return "@@ALIVE@@" in self._exec_code("print('@@ALIVE@@')", timeout=90)
+        except (RuntimeError, subprocess.TimeoutExpired):
             return False
-        return self.session in (p.stdout + p.stderr)
+
+    def wait_ready(self, tries: int = 6, wait_s: int = 10) -> None:
+        for i in range(tries):
+            if self.alive():
+                return
+            log.info("Runtime not answering yet (%d/%d)...", i + 1, tries)
+            time.sleep(wait_s)
+        raise SessionLost("The runtime was allocated but never became reachable")
 
     def new(self, retries: int = 2, wait_s: int = 45) -> None:
         combos = [(g, hm) for g in [self.gpu] + self.fallback_gpus
@@ -109,55 +133,9 @@ class ColabExecutor:
         local.parent.mkdir(parents=True, exist_ok=True)
         self._colab("download", "-s", self.session, remote, str(local), timeout=self.io_timeout)
 
-    def exec_file(self, script: Path) -> None:
-        self._colab("exec", "-s", self.session, "-f", str(script))     # long jobs: no timeout
-
     def ping(self) -> None:
         """Trivial kernel execution, to keep the session active during long file transfers."""
-        try:
-            subprocess.run(self._base() + ["exec", "-s", self.session], input="print('keepalive')\n",
-                           text=True, capture_output=True, timeout=60)
-        except subprocess.TimeoutExpired:
-            log.warning("keepalive ping timed out")
-
-    def _exec_code(self, code: str, timeout: int = 120) -> str:
-        p = subprocess.run(self._base() + ["exec", "-s", self.session], input=code, text=True,
-                           capture_output=True, timeout=timeout)
-        if p.returncode != 0:
-            raise RuntimeError(f"colab exec failed: {(p.stderr or p.stdout)[-300:]}")
-        return p.stdout
-
-    def run_background(self, poll_s: int = 30, max_hours: float = 8.0) -> None:
-        """Launch colab_entry.py detached on the VM, then poll with short calls until it finishes."""
-        self.upload(ENTRY, "/content/colab_entry.py")
-        m = re.search(r"@@PID@@(\d+)", self._exec_code(LAUNCH_CODE))
-        if not m:
-            raise RuntimeError("could not launch the remote job")
-        pid, offset, failures = int(m.group(1)), 0, 0
-        deadline = time.time() + max_hours * 3600
-        while time.time() < deadline:
-            try:
-                out = self._exec_code(POLL_CODE.replace("__PID__", str(pid)).replace("__OFFSET__", str(offset)))
-                st = json.loads(out.split("@@STATE@@", 1)[1].strip().splitlines()[0])
-                failures = 0
-            except (RuntimeError, subprocess.TimeoutExpired, IndexError, ValueError):
-                failures += 1
-                if failures >= 8 and not self.alive():
-                    raise SessionLost(f"Session '{self.session}' disappeared while the job was running")
-                if failures >= 30:
-                    raise RuntimeError("lost contact with the remote job")
-                time.sleep(poll_s)
-                continue
-            if st["chunk"]:
-                print(st["chunk"], end="", flush=True)
-            offset = st["offset"]
-            if st["done"]:
-                return
-            if not st["alive"]:
-                raise RuntimeError("the remote job exited without writing a result; see the log above")
-            if len(st["chunk"]) < 6000:
-                time.sleep(poll_s)
-        raise RuntimeError(f"the remote job did not finish within {max_hours} hours")
+        self.alive()
 
     def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 4, retries: int = 3) -> int:
         tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
@@ -170,12 +148,14 @@ class ColabExecutor:
                     try:
                         self.upload(part, f"/content/{part.name}")
                         break
-                    except RuntimeError:
+                    except RuntimeError as exc:
                         if not self.alive():
-                            raise SessionLost(f"Session '{self.session}' disappeared while uploading {part.name}")
+                            raise SessionLost(f"Session '{self.session}' is not answering while uploading "
+                                              f"{part.name}. Last CLI message: {exc}")
                         if attempt == retries:
                             raise
-                        log.warning("upload of %s failed (attempt %d), retrying", part.name, attempt)
+                        log.warning("upload of %s failed (attempt %d), retrying: %s", part.name, attempt, exc)
+                        time.sleep(5 * attempt)
                 sent += size
                 part.unlink()
                 log.info("uploaded part %d/%d (%.2f MB/s average)", i, len(parts),
@@ -197,22 +177,57 @@ class ColabExecutor:
                         try:
                             self.download(f"/content/{name}", tmp / name)
                             break
-                        except RuntimeError:
+                        except RuntimeError as exc:
                             if not self.alive():
-                                raise SessionLost(f"Session '{self.session}' disappeared while downloading {name}")
+                                raise SessionLost(f"Session '{self.session}' is not answering while "
+                                                  f"downloading {name}. Last CLI message: {exc}")
                             if attempt == retries:
                                 raise
-                            log.warning("download of %s failed (attempt %d), retrying", name, attempt)
+                            log.warning("download of %s failed (attempt %d), retrying: %s", name, attempt, exc)
+                            time.sleep(5 * attempt)
                     out.write((tmp / name).read_bytes())
                     (tmp / name).unlink()
                     log.info("downloaded part %d/%d", i + 1, n)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def run_background(self, poll_s: int = 30, max_hours: float = 8.0) -> None:
+        """Launch colab_entry.py detached on the VM, then poll with short calls until it finishes."""
+        self.upload(ENTRY, "/content/colab_entry.py")
+        m = re.search(r"@@PID@@(\d+)", self._exec_code(LAUNCH_CODE))
+        if not m:
+            raise RuntimeError("could not launch the remote job")
+        pid, offset, failures = int(m.group(1)), 0, 0
+        deadline = time.time() + max_hours * 3600
+        while time.time() < deadline:
+            try:
+                out = self._exec_code(POLL_CODE.replace("__PID__", str(pid)).replace("__OFFSET__", str(offset)))
+                st = json.loads(out.split("@@STATE@@", 1)[1].strip().splitlines()[0])
+                failures = 0
+            except (RuntimeError, subprocess.TimeoutExpired, IndexError, ValueError):
+                failures += 1
+                if failures >= 8 and not self.alive():
+                    raise SessionLost(f"Session '{self.session}' stopped answering while the job was running")
+                if failures >= 30:
+                    raise RuntimeError("lost contact with the remote job")
+                time.sleep(poll_s)
+                continue
+            if st["chunk"]:
+                print(st["chunk"], end="", flush=True)
+            offset = st["offset"]
+            if st["done"]:
+                return
+            if not st["alive"]:
+                raise RuntimeError("the remote job exited without writing a result; see the log above")
+            if len(st["chunk"]) < 6000:
+                time.sleep(poll_s)
+        raise RuntimeError(f"the remote job did not finish within {max_hours} hours")
+
     @contextmanager
     def open_session(self, keep: bool = False):
         self.new()
         try:
+            self.wait_ready()
             yield self
         finally:
             if keep:
