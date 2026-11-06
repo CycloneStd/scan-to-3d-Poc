@@ -17,6 +17,35 @@ RESULT = "/content/result.json"
 LOG = "/content/dense.log"
 MM = "/content/bin/micromamba"
 
+PARSER_TEST = '''
+import json, sys
+from datasets.colmap import Parser
+p = Parser(data_dir=sys.argv[1], factor=1, normalize=True, test_every=8)
+print(json.dumps({"parser_images": len(p.image_names), "parser_points": int(len(getattr(p, "points", [])))}))
+'''
+
+
+def patch_pycolmap():
+    """NumPy 2 rejects np.uint64(-1); express the sentinel explicitly. Reports exactly what was changed."""
+    import importlib
+    import importlib.util
+    import pathlib
+
+    importlib.invalidate_caches()
+    spec = importlib.util.find_spec("pycolmap")
+    if spec is None:
+        return {"error": "pycolmap is not importable"}
+    roots = list(spec.submodule_search_locations or [os.path.dirname(spec.origin)])
+    patched = []
+    for root in roots:
+        for p in pathlib.Path(root).rglob("*.py"):
+            text = p.read_text()
+            new = re.sub(r"\b(np|numpy)\.uint64\(\s*-1\s*\)", "np.uint64(0xFFFFFFFFFFFFFFFF)", text)
+            if new != text:
+                p.write_text(new)
+                patched.append(str(p))
+    return {"roots": roots, "patched_files": patched}
+
 
 def sh(cmd, timeout=120):
     try:
@@ -242,6 +271,7 @@ def install_gsplat():
         if rc != 0:
             failed.append({"requirement": req, "tail": tail[-400:]})
 
+    patch = patch_pycolmap()
     env = dict(os.environ)
     used_shim = False
     if subprocess.run([sys.executable, "-c", "import fused_ssim"], capture_output=True).returncode != 0:
@@ -286,6 +316,7 @@ def install_gsplat():
 
     return ({"gsplat_version": ver, "torch": torch.__version__, "install_attempts": attempts,
              "failed_requirements": [f["requirement"] for f in failed],
+             "pycolmap_patch": patch,
              "numpy": sh(f"{sys.executable} -c 'import numpy; print(numpy.__version__)'"),
              "fused_ssim": "pytorch shim" if used_shim else "cuda"}, src, env)
 
@@ -360,8 +391,32 @@ def splat(job):
 
 def gsplat_check(job):
     t0 = time.time()
-    info, src, _ = install_gsplat()
-    return {**info, "seconds": round(time.time() - t0, 1)}
+    info, src, env = install_gsplat()
+    result = {**info}
+    if job.get("num_parts"):
+        assemble(job)
+        work = "/content/work_check"
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work)
+        with tarfile.open(job["workspace_tar"]) as tar:
+            tar.extractall(work)
+        ws = f"{work}/workspace"
+        from PIL import Image
+
+        for name in open(f"{ws}/image_names.txt").read().split("\n"):
+            if name:
+                path = f"{ws}/images/{name}"
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                Image.new("RGB", (64, 48)).save(path)
+        rc, tail = stream([sys.executable, "-c", PARSER_TEST, ws], cwd=f"{src}/examples", env=env)
+        if rc != 0:
+            roots = " ".join(info.get("pycolmap_patch", {}).get("roots", []))
+            diag = sh(f"grep -rn 'uint64' {roots} | head -20") if roots else ""
+            raise RuntimeError("COLMAP parser check failed:\n" + tail[-1500:] +
+                               "\n--- uint64 occurrences in pycolmap ---\n" + diag)
+        result["parser"] = tail.strip().splitlines()[-1]
+    result["seconds"] = round(time.time() - t0, 1)
+    return result
 
 
 ACTIONS = {"probe": probe, "dense": dense, "splat": splat, "gsplat_check": gsplat_check}
