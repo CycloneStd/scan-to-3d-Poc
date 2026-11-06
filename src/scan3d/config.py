@@ -25,6 +25,7 @@ DEFAULTS = {
     "export": {"flip_v": False},
     "video": {"select": "sharpest", "oversample": 3},
     "features": {"matcher": "auto", "sequential_overlap": 15},
+    "remote": {"chunk_mb": 2, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True},
     "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,
               "download_ply": False, "compress": ["sog", "spz"]},
 }
