@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -47,6 +48,36 @@ print('@@STATE@@' + json.dumps({'done': os.path.exists('/content/result.json'), 
                                 'chunk': chunk, 'offset': new_offset}))
 """
 
+STATUS_CODE = """
+import json, subprocess
+
+
+def rj(p):
+    try:
+        return json.load(open(p))
+    except Exception:
+        return None
+
+
+res, job, inp = rj('/content/result.json'), rj('/content/job.json'), rj('/content/inputs.json')
+pids = subprocess.run("pgrep -f '[c]olab_entry.py'", shell=True, capture_output=True, text=True).stdout.split()
+print('@@STATE@@' + json.dumps({'result_job_id': (res or {}).get('job_id'), 'result_ok': (res or {}).get('ok'),
+                                'job_json_id': (job or {}).get('job_id'), 'inputs': inp,
+                                'pid': int(pids[0]) if pids else None}))
+"""
+
+CLEAN_CODE = """
+import glob, os
+for pat in ('/content/ws.part*', '/content/*_result.part*', '/content/result.json', '/content/inputs.json',
+            '/content/job.json', '/content/job.log'):
+    for f in glob.glob(pat):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+print('@@CLEAN@@')
+"""
+
 
 class SessionLost(RuntimeError):
     """The Colab VM is not reachable (reclaimed, disconnected, or never became ready)."""
@@ -61,8 +92,10 @@ class ColabExecutor:
         self.fallback_gpus = list(fallback_gpus)
         self.io_timeout = io_timeout
         self.active_gpu = None
+        self.have_session = False
         self.last_output = ""
 
+    # ---- low-level CLI -------------------------------------------------------------------------
     def _base(self) -> list[str]:
         return ["colab"] + (["--auth", self.auth] if self.auth else [])
 
@@ -91,8 +124,8 @@ class ColabExecutor:
             raise RuntimeError(f"colab exec failed: {(p.stderr or p.stdout)[-300:]}")
         return p.stdout
 
+    # ---- session lifecycle ---------------------------------------------------------------------
     def alive(self) -> bool:
-        """Functional check: the VM must run code and answer."""
         try:
             return "@@ALIVE@@" in self._exec_code("print('@@ALIVE@@')", timeout=90)
         except (RuntimeError, subprocess.TimeoutExpired):
@@ -118,6 +151,7 @@ class ColabExecutor:
                     args += ["--high-mem"]
                 if self._try_colab(*args, timeout=300):
                     self.active_gpu = gpu
+                    self.have_session = True
                     log.info("Allocated runtime: gpu=%s high_mem=%s", gpu, hm)
                     return
                 log.warning("Allocation failed for gpu=%s high_mem=%s", gpu, hm)
@@ -126,18 +160,65 @@ class ColabExecutor:
                 time.sleep(wait_s)
         raise RuntimeError("Could not allocate a Colab runtime. Check `colab sessions` and `colab usage`.")
 
+    def ensure_session(self, lost_after_s: int = 600) -> None:
+        """Reuse a live VM if there is one; otherwise allocate. If we had a VM and it goes quiet,
+        wait up to `lost_after_s` for it to come back before replacing it (never discard work early)."""
+        if not self.have_session:
+            if self.alive():
+                self.have_session = True
+                return
+            self.new()
+            self.wait_ready()
+            return
+        started = time.time()
+        while not self.alive():
+            if time.time() - started >= lost_after_s:
+                log.warning("Runtime unreachable for %ds; replacing it", lost_after_s)
+                self._try_colab("stop", "-s", self.session, timeout=120)
+                self.new()
+                self.wait_ready()
+                return
+            log.info("Runtime not answering; waiting (%ds elapsed)...", int(time.time() - started))
+            time.sleep(30)
+
+    def release(self) -> None:
+        for _ in range(3):
+            if self._try_colab("stop", "-s", self.session, timeout=120):
+                self.have_session = False
+                return
+            time.sleep(10)
+        log.error("Could not stop session '%s'. Stop it yourself with `colab stop -s %s`, or terminate it at "
+                  "colab.research.google.com (Runtime > Manage sessions). It may still be billing.",
+                  self.session, self.session)
+
+    @contextmanager
+    def open_session(self, keep: bool = False):
+        self.new()
+        try:
+            self.wait_ready()
+            yield self
+        finally:
+            if keep:
+                log.warning("Session '%s' left running. Release it with: colab stop -s %s",
+                            self.session, self.session)
+            else:
+                self.release()
+
+    # ---- file transfer -------------------------------------------------------------------------
     def upload(self, local: Path, remote: str) -> None:
         self._colab("upload", "-s", self.session, str(local), remote, timeout=self.io_timeout)
 
     def download(self, remote: str, local: Path) -> None:
         local.parent.mkdir(parents=True, exist_ok=True)
-        self._colab("download", "-s", self.session, remote, str(local), timeout=self.io_timeout)
+        tmp = local.with_name(local.name + ".tmp")
+        tmp.unlink(missing_ok=True)
+        self._colab("download", "-s", self.session, remote, str(tmp), timeout=self.io_timeout)
+        os.replace(tmp, local)
 
     def ping(self) -> None:
-        """Trivial kernel execution, to keep the session active during long file transfers."""
         self.alive()
 
-    def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 4, retries: int = 3) -> int:
+    def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 2, retries: int = 3) -> int:
         tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
         try:
             parts = split_file(local, tmp, prefix, chunk_mb * 1024 * 1024)
@@ -167,6 +248,7 @@ class ColabExecutor:
             shutil.rmtree(tmp, ignore_errors=True)
 
     def download_chunked(self, prefix: str, n: int, dest: Path, retries: int = 3) -> None:
+        """Simple (non-resumable) variant, used by the dense stage."""
         tmp = Path(tempfile.mkdtemp(prefix="scan3d-dl-"))
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -191,13 +273,51 @@ class ColabExecutor:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def run_background(self, poll_s: int = 30, max_hours: float = 8.0) -> None:
-        """Launch colab_entry.py detached on the VM, then poll with short calls until it finishes."""
-        self.upload(ENTRY, "/content/colab_entry.py")
-        m = re.search(r"@@PID@@(\d+)", self._exec_code(LAUNCH_CODE))
-        if not m:
-            raise RuntimeError("could not launch the remote job")
-        pid, offset, failures = int(m.group(1)), 0, 0
+    def download_parts(self, prefix: str, n: int, parts_dir: Path) -> None:
+        """Resumable: parts already on disk are skipped."""
+        parts_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(n):
+            p = parts_dir / f"{prefix}{i:03d}"
+            if p.exists() and p.stat().st_size > 0:
+                continue
+            self.download(f"/content/{prefix}{i:03d}", p)
+            log.info("downloaded part %d/%d", i + 1, n)
+
+    # ---- remote state --------------------------------------------------------------------------
+    def remote_status(self) -> dict:
+        out = self._exec_code(STATUS_CODE)
+        return json.loads(out.split("@@STATE@@", 1)[1].strip().splitlines()[0])
+
+    def clean_remote(self) -> None:
+        self._exec_code(CLEAN_CODE)
+
+    def mark_inputs(self, digest: str, parts: int) -> None:
+        code = (f"import json; json.dump({{'digest': {digest!r}, 'parts': {parts}}}, "
+                f"open('/content/inputs.json', 'w')); print('@@OK@@')")
+        if "@@OK@@" not in self._exec_code(code):
+            raise RuntimeError("could not record the upload state on the VM")
+
+    def put_job(self, job: dict, out_dir: Path) -> None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        job_file = out_dir / "job.json"
+        job_file.write_text(json.dumps(job, indent=2))
+        self.upload(job_file, "/content/job.json")
+
+    def fetch_result(self, out_dir: Path) -> dict:
+        self.download("/content/result.json", out_dir / "result.json")
+        return json.loads((out_dir / "result.json").read_text())
+
+    def run_background(self, poll_s: int = 30, max_hours: float = 8.0, attach_pid: int | None = None) -> None:
+        """Launch colab_entry.py detached on the VM (or attach to a running one), then poll until it finishes."""
+        if attach_pid is None:
+            self.upload(ENTRY, "/content/colab_entry.py")
+            m = re.search(r"@@PID@@(\d+)", self._exec_code(LAUNCH_CODE))
+            if not m:
+                raise RuntimeError("could not launch the remote job")
+            pid = int(m.group(1))
+        else:
+            pid = attach_pid
+        offset, failures = 0, 0
         deadline = time.time() + max_hours * 3600
         while time.time() < deadline:
             try:
@@ -208,8 +328,6 @@ class ColabExecutor:
                 failures += 1
                 if failures >= 8 and not self.alive():
                     raise SessionLost(f"Session '{self.session}' stopped answering while the job was running")
-                if failures >= 30:
-                    raise RuntimeError("lost contact with the remote job")
                 time.sleep(poll_s)
                 continue
             if st["chunk"]:
@@ -223,27 +341,9 @@ class ColabExecutor:
                 time.sleep(poll_s)
         raise RuntimeError(f"the remote job did not finish within {max_hours} hours")
 
-    @contextmanager
-    def open_session(self, keep: bool = False):
-        self.new()
-        try:
-            self.wait_ready()
-            yield self
-        finally:
-            if keep:
-                log.warning("Session '%s' left running. Release it with: colab stop -s %s",
-                            self.session, self.session)
-            elif not self._try_colab("stop", "-s", self.session, timeout=120):
-                log.warning("Could not stop session '%s' (it may already be gone). "
-                            "Check `colab sessions`.", self.session)
-
     def run_job(self, job: dict, out_dir: Path, uploads: dict[Path, str] | None = None) -> dict:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        job_file = out_dir / "job.json"
-        job_file.write_text(json.dumps(job, indent=2))
-        self.upload(job_file, "/content/job.json")
+        self.put_job(job, out_dir)
         for local, remote in (uploads or {}).items():
             self.upload(local, remote)
         self.run_background()
-        self.download("/content/result.json", out_dir / "result.json")
-        return json.loads((out_dir / "result.json").read_text())
+        return self.fetch_result(out_dir)
