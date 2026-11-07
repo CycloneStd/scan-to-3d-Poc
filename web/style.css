@@ -1,0 +1,29 @@
+:root { color-scheme: dark; }
+html, body { margin: 0; height: 100%; background: #0b0c0f; overflow: hidden; color: #fff;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+canvas { display: block; touch-action: none; }
+.hidden { display: none !important; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0b0c0f; z-index: 20; }
+#hotspots { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.hotspot { position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid #fff; background: rgba(255,255,255,.25); pointer-events: auto; cursor: pointer;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); will-change: transform; padding: 0; }
+.hotspot::after { content: ""; position: absolute; inset: -8px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.6); animation: pulse 2s infinite; }
+@keyframes pulse { 0% { transform: scale(.7); opacity: .9; } 100% { transform: scale(1.4); opacity: 0; } }
+.glass { background: rgba(20,22,28,.45); border: 1px solid rgba(255,255,255,.18); border-radius: 18px;
+  backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+#panel { position: fixed; top: max(16px, env(safe-area-inset-top)); right: 16px; width: min(360px, calc(100vw - 32px));
+  padding: 20px; z-index: 10; animation: slide .3s ease-out; box-sizing: border-box; }
+@keyframes slide { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+#panel h2 { margin: 0 28px 8px 0; font-size: 1.15rem; }
+#panel p { margin: 0 0 12px; line-height: 1.5; opacity: .9; }
+#panel img, #panel video { width: 100%; border-radius: 12px; display: block; }
+#close { position: absolute; top: 10px; right: 12px; background: none; border: 0; color: #fff; font-size: 1.6rem; cursor: pointer; }
+#stats { position: fixed; left: 12px; bottom: max(12px, env(safe-area-inset-bottom)); padding: 8px 12px;
+  font: 12px ui-monospace, monospace; z-index: 10; }
+#toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 8px 14px; z-index: 30; font-size: 13px; }
+@media (max-width: 600px) {
+  #panel { top: auto; bottom: max(16px, env(safe-area-inset-bottom)); left: 16px; right: 16px; width: auto; }
+}

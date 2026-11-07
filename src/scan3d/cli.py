@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from .config import load_config,apply_overrides
 from .logging_setup import setup_logging
 from .pipeline import Context, execute
 from .project import Manifest, RunDir
-from .stages import ORDER, REGISTRY
+from .stages import ORDER, REGISTRY, TRACKS
 from .system import doctor as doctor_mod
 
 RUNS = Path("runs")
@@ -36,7 +37,7 @@ def cmd_doctor(args):
 def cmd_run(args):
     cfg = load_config(args.config)
     apply_overrides(cfg,args.set)
-    requested = args.stages.split(",") if args.stages else ORDER
+    requested = args.stages.split(",") if args.stages else TRACKS[args.track]
     unknown = [s for s in requested if s not in REGISTRY]
     if unknown:
         raise SystemExit(f"Unknown stage(s): {unknown}. Available: {ORDER}")
@@ -51,6 +52,19 @@ def cmd_status(args):
     for name, rec in manifest.data["stages"].items():
         print(f"{name:<10} {rec.get('status'):<8} {rec.get('seconds', '-')}s  {rec.get('metrics', '')}")
 
+def _mini_bundle(src_run: Path, out_root: Path):
+    """Sparse model + the image *names* only (the VM creates dummy images), for a cheap parser test."""
+    from .remote.bundle import pack
+
+    ws = src_run / "05_undistort" / "workspace"
+    stage = out_root / "mini" / "workspace"
+    shutil.rmtree(out_root / "mini", ignore_errors=True)
+    shutil.copytree(ws / "sparse", stage / "sparse")
+    names = sorted(str(p.relative_to(ws / "images")) for p in (ws / "images").rglob("*") if p.is_file())
+    (stage / "image_names.txt").write_text("\n".join(names))
+    tar = out_root / "mini.tar.gz"
+    return tar, pack({"workspace": stage}, tar)
+
 
 def cmd_remote_probe(args):
     from .remote.executor import ColabExecutor
@@ -59,8 +73,14 @@ def cmd_remote_probe(args):
     run = _new_run(cfg, args.run_id, prefix="probe")
     r = cfg["remote"]
     ex = ColabExecutor(r["session"], r.get("gpu"), r.get("high_mem", True), r.get("auth"))
+    job = {"action": args.action}
     with ex.open_session(keep=args.keep):
-        result = ex.run_job({"action": "probe"}, run.root / "remote")
+        if args.action == "gsplat_check" and args.from_run:
+            tar, digest = _mini_bundle(RUNS / args.from_run, run.root)
+            n = ex.upload_chunked(tar, "ws.part", int(r.get("chunk_mb", 4)))
+            job.update(workspace_tar="/content/workspace.tar.gz", parts_prefix="ws.part",
+                       num_parts=n, sha256=digest)
+        result = ex.run_job(job, run.root / "remote")
     print(json.dumps(result, indent=2))
 
 
@@ -96,6 +116,8 @@ def main(argv=None):
     r.add_argument("--stages", help=f"comma list from: {','.join(ORDER)}")
     r.add_argument("--force", action="store_true", help="re-run even if up to date")
     r.add_argument("--set",action="append",metavar="KEY=VALUE",help="override a config value, e.g. --set sparse.mapper=global")
+    r.add_argument("--track", choices=list(TRACKS), default="mesh",
+                   help="default stage set when --stages is not given")
     r.set_defaults(fn=cmd_run)
 
     s = sub.add_parser("status", help="show stage status of a run")
@@ -106,6 +128,8 @@ def main(argv=None):
     rp.add_argument("--config", default="configs/default.yaml")
     rp.add_argument("--run-id")
     rp.add_argument("--keep", action="store_true", help="leave the VM running afterwards")
+    rp.add_argument("--action", default="probe", choices=["probe", "gsplat_check"])
+    rp.add_argument("--from-run", help="run whose undistorted sparse model is used for the parser check")
     rp.set_defaults(fn=cmd_remote_probe)
 
     rep = sub.add_parser("report", help="write runs/<id>/report.md")

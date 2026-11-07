@@ -22,7 +22,7 @@ remote:
   auth: null
 
 colmap:
-  binary: /home/CodeWolf/anaconda3/envs/colmap4/bin/colmap
+  binary: colmap
 
 features:
   camera_model: SIMPLE_RADIAL

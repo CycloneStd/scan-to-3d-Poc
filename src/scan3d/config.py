@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -22,7 +23,19 @@ DEFAULTS = {
     "mesh": {"texture": True,"target_face_ratio":0.05},
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},
+    "video": {"select": "sharpest", "oversample": 3},
+    "features": {"matcher": "auto", "sequential_overlap": 15},
+    "remote": {"chunk_mb": 2, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True},
+    "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,
+              "download_ply": False, "compress": ["spz"]},
 }
+
+
+def _expand(value: str, key: str) -> str:
+    out = os.path.expanduser(os.path.expandvars(value))
+    if "$" in out:
+        raise ValueError(f"{key} uses an environment variable that is not set: {value}")
+    return out
 
 
 def load_config(path: str | Path) -> dict:
@@ -39,6 +52,8 @@ def load_config(path: str | Path) -> dict:
         node = cfg.setdefault(section, {})
         for k, v in values.items():
             node.setdefault(k, v)
+    cfg["colmap"]["binary"] = _expand(cfg["colmap"]["binary"], "colmap.binary")
+    cfg["blender"]["binary"] = _expand(cfg["blender"]["binary"], "blender.binary")
     return cfg
 
 

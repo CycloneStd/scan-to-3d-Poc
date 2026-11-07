@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -7,12 +8,43 @@ import tarfile
 import time
 import traceback
 import hashlib
+import glob
+import shlex
 from collections import deque
 
 JOB = "/content/job.json"
 RESULT = "/content/result.json"
 LOG = "/content/dense.log"
 MM = "/content/bin/micromamba"
+
+PARSER_TEST = '''
+import json, sys
+from datasets.colmap import Parser
+p = Parser(data_dir=sys.argv[1], factor=1, normalize=True, test_every=8)
+print(json.dumps({"parser_images": len(p.image_names), "parser_points": int(len(getattr(p, "points", [])))}))
+'''
+
+
+def patch_pycolmap():
+    """NumPy 2 rejects np.uint64(-1); express the sentinel explicitly. Reports exactly what was changed."""
+    import importlib
+    import importlib.util
+    import pathlib
+
+    importlib.invalidate_caches()
+    spec = importlib.util.find_spec("pycolmap")
+    if spec is None:
+        return {"error": "pycolmap is not importable"}
+    roots = list(spec.submodule_search_locations or [os.path.dirname(spec.origin)])
+    patched = []
+    for root in roots:
+        for p in pathlib.Path(root).rglob("*.py"):
+            text = p.read_text()
+            new = re.sub(r"\b(np|numpy)\.uint64\(\s*-1\s*\)", "np.uint64(0xFFFFFFFFFFFFFFFF)", text)
+            if new != text:
+                p.write_text(new)
+                patched.append(str(p))
+    return {"roots": roots, "patched_files": patched}
 
 
 def sh(cmd, timeout=120):
@@ -23,15 +55,19 @@ def sh(cmd, timeout=120):
         return f"ERROR: {exc}"
 
 
-def stream(cmd):
+def stream(cmd, cwd=None, env=None, every=1):
     print("$", " ".join(cmd), flush=True)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            bufsize=1, cwd=cwd, env=env)
     tail = deque(maxlen=30)
+    n = 0
     with open(LOG, "a") as fh:
         for line in proc.stdout:
             fh.write(line)
             tail.append(line)
-            print(line, end="", flush=True)
+            n += 1
+            if every == 1 or n % every == 0 or "rror" in line:
+                print(line, end="", flush=True)
     return proc.wait(), "".join(tail)
 
 
@@ -142,8 +178,248 @@ def dense(job):
 
     raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
 
+def ensure_micromamba():
+    if not os.path.exists(MM):
+        sh("mkdir -p /content/bin && curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest "
+           "| tar -xj -C /content bin/micromamba", timeout=300)
 
-ACTIONS = {"probe": probe, "dense": dense}
+
+FUSED_SSIM_SHIM = '''
+import torch
+import torch.nn.functional as F
+
+
+def _window(C, device, dtype, win=11, sigma=1.5):
+    x = torch.arange(win, dtype=torch.float32) - win // 2
+    g = torch.exp(-(x ** 2) / (2 * sigma ** 2))
+    g = g / g.sum()
+    return (g[:, None] @ g[None, :]).to(device=device, dtype=dtype).expand(C, 1, win, win).contiguous()
+
+
+def fused_ssim(img1, img2, padding="same", train=True):
+    """Pure-PyTorch SSIM (mean over image). img*: (B, C, H, W)."""
+    C = img1.shape[1]
+    w = _window(C, img1.device, img1.dtype)
+    pad = 5 if padding == "same" else 0
+    mu1 = F.conv2d(img1, w, padding=pad, groups=C)
+    mu2 = F.conv2d(img2, w, padding=pad, groups=C)
+    mu1_sq, mu2_sq, mu12 = mu1 * mu1, mu2 * mu2, mu1 * mu2
+    s1 = F.conv2d(img1 * img1, w, padding=pad, groups=C) - mu1_sq
+    s2 = F.conv2d(img2 * img2, w, padding=pad, groups=C) - mu2_sq
+    s12 = F.conv2d(img1 * img2, w, padding=pad, groups=C) - mu12
+    c1, c2 = 0.01 ** 2, 0.03 ** 2
+    ssim_map = ((2 * mu12 + c1) * (2 * s12 + c2)) / ((mu1_sq + mu2_sq + c1) * (s1 + s2 + c2))
+    return ssim_map.mean()
+'''
+
+
+SMOKE = '''
+import torch
+from gsplat import rasterization
+dev = "cuda"
+N = 100
+means = torch.randn(N, 3, device=dev)
+means[:, 2] += 3
+quats = torch.nn.functional.normalize(torch.randn(N, 4, device=dev), dim=-1)
+scales = torch.rand(N, 3, device=dev) * 0.1 + 0.02
+opac = torch.rand(N, device=dev)
+colors = torch.rand(N, 3, device=dev)
+K = torch.tensor([[100.0, 0, 64], [0, 100.0, 64], [0, 0, 1]], device=dev)[None]
+view = torch.eye(4, device=dev)[None]
+img, alpha, _ = rasterization(means, quats, scales, opac, colors, view, K, 128, 128)
+torch.cuda.synchronize()
+print("rasterization OK", tuple(img.shape))
+'''
+
+
+def install_gsplat():
+    import torch
+    tv = torch.__version__.split("+")[0].split(".")
+    tag = f"pt{tv[0]}{tv[1]}cu{(torch.version.cuda or '').replace('.', '')}"
+    pip = [sys.executable, "-m", "pip", "install", "-q"]
+    attempts, ok = [], False
+    for label, cmd in (
+        (f"prebuilt wheel {tag}", pip + ["gsplat", "--index-url", f"https://docs.gsplat.studio/whl/{tag}",
+                                         "--extra-index-url", "https://pypi.org/simple"]),
+        ("pypi source build", pip + ["gsplat"]),
+    ):
+        rc, tail = stream(cmd)
+        attempts.append({"method": label, "rc": rc, "tail": tail[-300:] if rc else ""})
+        if rc == 0:
+            ok = True
+            break
+    if not ok:
+        raise RuntimeError("gsplat install failed: " + json.dumps(attempts, indent=2))
+    ver = sh(f"{sys.executable} -m pip show gsplat | grep -i '^Version'").split(":")[-1].strip().split("+")[0]
+
+    src = "/content/gsplat_src"
+    shutil.rmtree(src, ignore_errors=True)
+    url = "https://github.com/nerfstudio-project/gsplat"
+    rc, _ = stream(["git", "clone", "--depth", "1", "--branch", f"v{ver}", url, src])
+    if rc != 0:
+        rc, _ = stream(["git", "clone", "--depth", "1", url, src])
+        if rc != 0:
+            raise RuntimeError("could not clone the gsplat examples")
+
+    failed = []
+    for line in open(f"{src}/examples/requirements.txt"):
+        req = line.strip()
+        if not req or req.startswith("#") or req.lower().startswith("numpy"):
+            continue
+        extra = ["--no-build-isolation"] if "fused" in req.lower() else []
+        rc, tail = stream(pip + extra + shlex.split(req))
+        if rc != 0:
+            failed.append({"requirement": req, "tail": tail[-400:]})
+
+    patch = patch_pycolmap()
+    env = dict(os.environ)
+    used_shim = False
+    if subprocess.run([sys.executable, "-c", "import fused_ssim"], capture_output=True).returncode != 0:
+        os.makedirs("/content/shims", exist_ok=True)
+        open("/content/shims/fused_ssim.py", "w").write(FUSED_SSIM_SHIM)
+        env["PYTHONPATH"] = "/content/shims:" + env.get("PYTHONPATH", "")
+        used_shim = True
+
+
+    ds = f"{src}/examples/datasets"
+    if os.path.isdir(ds) and not os.path.exists(f"{ds}/__init__.py"):
+        open(f"{ds}/__init__.py", "w").close()
+
+    trainer = f"{src}/examples/simple_trainer.py"
+    renames = {"cv2": "opencv-python", "sklearn": "scikit-learn", "yaml": "pyyaml", "PIL": "Pillow"}
+    help_rc, help_tail = 1, ""
+    for _ in range(4):
+        help_rc, help_tail = stream([sys.executable, trainer, "default", "--help"], env=env, every=100)
+        if help_rc == 0:
+            break
+        m = re.search(r"No module named '([\w.]+)'", help_tail)
+        if not m:
+            break
+        mod = m.group(1).split(".")[0]
+        already_installed = subprocess.run(
+            [sys.executable, "-c", f"import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('{mod}') else 1)"],
+            capture_output=True).returncode == 0
+        if already_installed:
+            break            # present but failing to import (a conflict): pip cannot fix this
+        rc2, _ = stream(pip + [renames.get(mod, mod)])
+        if rc2 != 0:
+            break
+    if help_rc != 0:
+        diag = sh(f"ls -la {ds}; {sys.executable} -c \"import datasets; print(datasets.__file__)\"")
+        raise RuntimeError("the gsplat trainer cannot start:\n" + help_tail[-1500:] +
+                           "\n--- diagnostics ---\n" + diag +
+                           "\nfailed requirements: " + json.dumps([f["requirement"] for f in failed]))
+
+    rc, tail = stream([sys.executable, "-c", SMOKE], env=env)
+    if rc != 0:
+        raise RuntimeError("GPU rasterization smoke test failed:\n" + tail[-1200:])
+
+    return ({"gsplat_version": ver, "torch": torch.__version__, "install_attempts": attempts,
+             "failed_requirements": [f["requirement"] for f in failed],
+             "pycolmap_patch": patch,
+             "numpy": sh(f"{sys.executable} -c 'import numpy; print(numpy.__version__)'"),
+             "fused_ssim": "pytorch shim" if used_shim else "cuda"}, src, env)
+
+def compress_splat(ply, out_dir, formats):
+    results = {}
+    ensure_micromamba()
+    node = "/content/node"
+    if not os.path.exists(f"{node}/bin/npx"):
+        rc, tail = stream([MM, "create", "-y", "-p", node, "-c", "conda-forge", "nodejs"])
+        if rc != 0:
+            return {"error": "nodejs install failed: " + tail[-300:]}
+    env = dict(os.environ, PATH=f"{node}/bin:" + os.environ.get("PATH", ""))
+    for fmt in formats:
+        dst = f"{out_dir}/scene.{fmt}"
+        rc, tail = stream([f"{node}/bin/npx", "--yes", "@playcanvas/splat-transform", ply, dst], env=env)
+        results[fmt] = True if (rc == 0 and os.path.exists(dst)) else "failed: " + tail[-300:]
+    return results
+
+
+def splat(job):
+    assemble(job)
+    work = "/content/work"
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    with tarfile.open(job["workspace_tar"]) as tar:
+        tar.extractall(work)
+    ws = f"{work}/workspace"
+    gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
+
+    t0 = time.time()
+    info, src, train_env = install_gsplat()
+    t_install = round(time.time() - t0, 1)
+
+    steps = int(job["max_steps"])
+    res = "/content/splat_run"
+    shutil.rmtree(res, ignore_errors=True)
+    t0 = time.time()
+    rc, tail = stream([sys.executable, f"{src}/examples/simple_trainer.py", "default",
+                       "--data_dir", ws, "--data_factor", str(job["data_factor"]), "--result_dir", res,
+                       "--max_steps", str(steps), "--disable_viewer", "--eval_steps", str(steps),
+                       "--save_ply", "--ply_steps", str(steps)], env=train_env, every=200)
+    t_train = round(time.time() - t0, 1)
+    if rc != 0:
+        raise RuntimeError("training failed:\n" + tail[-1500:])
+
+    plys = sorted(glob.glob(f"{res}/ply/*.ply"))
+    if not plys:
+        raise RuntimeError("training finished but no PLY was found:\n" + sh(f"find {res} -maxdepth 2 | head -40"))
+    stats_files = sorted(glob.glob(f"{res}/stats/val_step*.json"))
+    stats = json.load(open(stats_files[-1])) if stats_files else {}
+
+    out_dir = "/content/splat_out"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    os.makedirs(out_dir)
+    comp = compress_splat(plys[-1], out_dir, job["compress"])
+    if job["download_ply"] or not any(comp.get(f) is True for f in job["compress"]):
+        shutil.copy(plys[-1], f"{out_dir}/scene.ply")
+    shutil.copy(LOG, f"{out_dir}/splat_train.log")
+    json.dump(stats, open(f"{out_dir}/stats.json", "w"), indent=2)
+
+    result_tar = "/content/splat_result.tar.gz"
+    with tarfile.open(result_tar, "w:gz") as tar:
+        for name in os.listdir(out_dir):
+            tar.add(f"{out_dir}/{name}", arcname=name)
+    n_parts = split_result(result_tar, "splat_result.part", job["chunk_bytes"])
+    return {**info, "gpu": gpu, "seconds_install": t_install, "seconds_train": t_train,
+            "psnr": stats.get("psnr"), "ssim": stats.get("ssim"), "lpips": stats.get("lpips"),
+            "num_gaussians": stats.get("num_GS"), "compress": comp,
+            "ply_mb": round(os.path.getsize(plys[-1]) / 1e6, 1),
+            "result_parts": n_parts, "result_sha256": sha256(result_tar)}
+
+
+def gsplat_check(job):
+    t0 = time.time()
+    info, src, env = install_gsplat()
+    result = {**info}
+    if job.get("num_parts"):
+        assemble(job)
+        work = "/content/work_check"
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work)
+        with tarfile.open(job["workspace_tar"]) as tar:
+            tar.extractall(work)
+        ws = f"{work}/workspace"
+        from PIL import Image
+
+        for name in open(f"{ws}/image_names.txt").read().split("\n"):
+            if name:
+                path = f"{ws}/images/{name}"
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                Image.new("RGB", (64, 48)).save(path)
+        rc, tail = stream([sys.executable, "-c", PARSER_TEST, ws], cwd=f"{src}/examples", env=env)
+        if rc != 0:
+            roots = " ".join(info.get("pycolmap_patch", {}).get("roots", []))
+            diag = sh(f"grep -rn 'uint64' {roots} | head -20") if roots else ""
+            raise RuntimeError("COLMAP parser check failed:\n" + tail[-1500:] +
+                               "\n--- uint64 occurrences in pycolmap ---\n" + diag)
+        result["parser"] = tail.strip().splitlines()[-1]
+    result["seconds"] = round(time.time() - t0, 1)
+    return result
+
+
+ACTIONS = {"probe": probe, "dense": dense, "splat": splat, "gsplat_check": gsplat_check}
 
 
 def main():
@@ -157,7 +433,10 @@ def main():
     except Exception:
         result = {"ok": False, "action": job.get("action"), "error": traceback.format_exc()}
     result["seconds"] = round(time.time() - t0, 2)
-    json.dump(result, open(RESULT, "w"), indent=2)
+    result["job_id"] = job.get("job_id")
+    with open(RESULT + ".tmp", "w") as fh:
+        json.dump(result, fh, indent=2)
+    os.replace(RESULT + ".tmp", RESULT)
     print(json.dumps({k: v for k, v in result.items() if k != "data"}, indent=2))
 
 

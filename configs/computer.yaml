@@ -24,7 +24,7 @@ remote:
 
 
 colmap:
-  binary: /home/CodeWolf/anaconda3/envs/colmap4/bin/colmap
+  binary: colmap
 
 
 features:
