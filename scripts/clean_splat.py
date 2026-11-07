@@ -35,7 +35,7 @@ def main():
     ap.add_argument("--min-opacity", type=float, default=0.3)
     ap.add_argument("--max-scale-frac", type=float, default=0.05,
                     help="largest allowed Gaussian size as a fraction of the scene radius (0 = off)")
-    ap.add_argument("--crop-factor", type=float, default=1.5,
+    ap.add_argument("--crop-factor", type=float, default=1.0,
                     help="keep Gaussians within this multiple of the scene radius (0 = off)")
     a = ap.parse_args()
 

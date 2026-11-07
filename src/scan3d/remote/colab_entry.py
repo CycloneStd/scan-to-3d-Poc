@@ -336,6 +336,60 @@ def compress_splat(ply, out_dir, formats):
     return results
 
 
+def clean_ply(src, dst, min_opacity=0.3, max_scale_frac=0.05, crop_factor=1.5):
+    """Drop likely floaters from a 3DGS PLY: near-transparent, oversized, and far-away Gaussians."""
+    import numpy as np
+
+    read = {"float": "<f4", "float32": "<f4", "double": "<f8", "uchar": "u1", "uint8": "u1",
+            "int": "<i4", "int32": "<i4", "uint": "<u4", "short": "<i2", "ushort": "<u2",
+            "char": "i1"}
+    write = {"<f4": "float", "<f8": "double", "u1": "uchar", "<i4": "int", "<u4": "uint",
+             "<i2": "short", "<u2": "ushort", "i1": "char"}
+    props, n, in_vertex = [], None, False
+    with open(src, "rb") as fh:
+        while True:
+            line = fh.readline().decode("ascii").strip()
+            if line.startswith("format") and "binary_little_endian" not in line:
+                raise ValueError("Only binary little-endian PLY files are supported")
+            if line.startswith("element"):
+                parts = line.split()
+                in_vertex = parts[1] == "vertex"
+                if in_vertex:
+                    n = int(parts[2])
+            elif line.startswith("property") and in_vertex:
+                _, typ, name = line.split()
+                props.append((name, read[typ]))
+            elif line == "end_header":
+                break
+        d = np.fromfile(fh, dtype=np.dtype(props), count=n)
+
+    xyz = np.stack([d["x"], d["y"], d["z"]], axis=1).astype(np.float64)
+    opacity = 1 / (1 + np.exp(-d["opacity"].astype(np.float64)))
+    size = np.exp(np.max(np.stack([d["scale_0"], d["scale_1"], d["scale_2"]], axis=1)
+                         .astype(np.float64), axis=1))
+    solid = opacity > 0.5
+    if not solid.any():
+        raise ValueError("Cannot clean PLY: no Gaussians have opacity greater than 0.5")
+    center = np.median(xyz[solid], axis=0)
+    dist = np.linalg.norm(xyz - center, axis=1)
+    radius = float(np.percentile(dist[solid], 90))
+    keep, removed = np.ones(len(d), bool), {}
+    for label, mask in (("low_opacity", opacity >= min_opacity),
+                        ("oversized", size <= max_scale_frac * radius if max_scale_frac else keep),
+                        ("far_away", dist <= crop_factor * radius if crop_factor else keep)):
+        before = int(keep.sum())
+        keep &= mask
+        removed[label] = before - int(keep.sum())
+
+    out = d[keep]
+    header = "ply\nformat binary_little_endian 1.0\nelement vertex %d\n" % len(out)
+    header += "".join(f"property {write[t]} {name}\n" for name, t in props) + "end_header\n"
+    with open(dst, "wb") as fh:
+        fh.write(header.encode("ascii"))
+        fh.write(out.tobytes())
+    return {"before": int(len(d)), "after": int(len(out)), "scene_radius": round(radius, 4), "removed": removed}
+
+
 def splat(job):
     assemble(job)
     work = "/content/work"
@@ -368,12 +422,17 @@ def splat(job):
     stats_files = sorted(glob.glob(f"{res}/stats/val_step*.json"))
     stats = json.load(open(stats_files[-1])) if stats_files else {}
 
+    ply_out, clean_stats = plys[-1], None
+    if job.get("clean"):
+        clean_stats = clean_ply(plys[-1], "/content/splat_clean.ply", **job["clean"])
+        ply_out = "/content/splat_clean.ply"
+
     out_dir = "/content/splat_out"
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir)
-    comp = compress_splat(plys[-1], out_dir, job["compress"])
+    comp = compress_splat(ply_out, out_dir, job["compress"])
     if job["download_ply"] or not any(comp.get(f) is True for f in job["compress"]):
-        shutil.copy(plys[-1], f"{out_dir}/scene.ply")
+        shutil.copy(ply_out, f"{out_dir}/scene.ply")
     shutil.copy(LOG, f"{out_dir}/splat_train.log")
     json.dump(stats, open(f"{out_dir}/stats.json", "w"), indent=2)
 
@@ -384,7 +443,7 @@ def splat(job):
     n_parts = split_result(result_tar, "splat_result.part", job["chunk_bytes"])
     return {**info, "gpu": gpu, "seconds_install": t_install, "seconds_train": t_train,
             "psnr": stats.get("psnr"), "ssim": stats.get("ssim"), "lpips": stats.get("lpips"),
-            "num_gaussians": stats.get("num_GS"), "compress": comp,
+            "num_gaussians": stats.get("num_GS"), "clean": clean_stats, "compress": comp,
             "ply_mb": round(os.path.getsize(plys[-1]) / 1e6, 1),
             "result_parts": n_parts, "result_sha256": sha256(result_tar)}
 
@@ -440,4 +499,5 @@ def main():
     print(json.dumps({k: v for k, v in result.items() if k != "data"}, indent=2))
 
 
-main()
+if __name__ == "__main__":
+    main()
