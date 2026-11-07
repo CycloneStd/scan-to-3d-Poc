@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cyclone Studios</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.3.1/spark.module.js"}
+  }
+  </script>
+</head>
+<body>
+  <div id="loading">Loading scene…</div>
+  <div id="hotspots"></div>
+  <aside id="panel" class="glass hidden" aria-live="polite">
+    <button id="close" aria-label="Close">&times;</button>
+    <h2 id="panel-title"></h2>
+    <p id="panel-body"></p>
+    <div id="panel-media"></div>
+  </aside>
+  <div id="stats" class="glass hidden"></div>
+  <div id="toast" class="glass hidden"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
