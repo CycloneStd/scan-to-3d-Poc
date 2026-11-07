@@ -225,3 +225,4 @@ runs/
 
 *.tar.gz
 exports/
+web/assets/*
