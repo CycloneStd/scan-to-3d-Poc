@@ -28,13 +28,14 @@ class SplatStage(Stage):
         data, result_tar = roundtrip(
             ctx.cfg, out, tar, digest,
             {"action": "splat", "max_steps": int(sc["max_steps"]), "data_factor": int(sc["data_factor"]),
-             "compress": list(sc["compress"]), "download_ply": bool(sc["download_ply"])},
+             "compress": list(sc["compress"]), "download_ply": bool(sc["download_ply"]),
+             "clean": dict(sc["clean"]) if sc.get("clean") else None},
             "splat_result.part")
         unpack(result_tar, out)
 
         files_mb = {p.name: round(p.stat().st_size / 1e6, 2) for p in sorted(out.iterdir())
                     if p.is_file() and p.suffix in (".ply", ".spz", ".sog")}
 
-        return {k: data.get(k) for k in ("psnr", "ssim", "lpips", "num_gaussians", "seconds_install",
+        return {k: data.get(k) for k in ("psnr", "ssim", "lpips", "num_gaussians", "clean", "seconds_install",
                                         "seconds_train", "compress", "gsplat_version", "torch", "gpu")} | {
             "max_steps": sc["max_steps"], "files_mb": files_mb}
