@@ -126,9 +126,8 @@ def dense(job):
         tar.extractall(work)
     ws = f"{work}/workspace"
 
-    if not os.path.exists(MM):
-        sh("mkdir -p /content/bin && curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest "
-           "| tar -xj -C /content bin/micromamba", timeout=300)
+    if not ensure_micromamba():
+        raise RuntimeError("micromamba could not be downloaded")
     gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
 
     attempts = []
@@ -179,9 +178,24 @@ def dense(job):
     raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
 
 def ensure_micromamba():
-    if not os.path.exists(MM):
-        sh("mkdir -p /content/bin && curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest "
-           "| tar -xj -C /content bin/micromamba", timeout=300)
+    def works():
+        return os.path.exists(MM) and subprocess.run([MM, "--version"], capture_output=True).returncode == 0
+
+    if works():
+        return True
+    os.makedirs("/content/bin", exist_ok=True)
+    for cmd in (
+        "curl -fsSL --retry 3 https://micro.mamba.pm/api/micromamba/linux-64/latest "
+        "| tar -xj -C /content bin/micromamba",
+        f"curl -fsSL --retry 3 -o {MM} "
+        f"https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64 "
+        f"&& chmod +x {MM}",
+    ):
+        out = sh(cmd, timeout=300)
+        if works():
+            return True
+        print("micromamba download failed:", out[-200:], flush=True)
+    return False
 
 
 FUSED_SSIM_SHIM = '''
@@ -322,17 +336,21 @@ def install_gsplat():
 
 def compress_splat(ply, out_dir, formats):
     results = {}
-    ensure_micromamba()
-    node = "/content/node"
-    if not os.path.exists(f"{node}/bin/npx"):
-        rc, tail = stream([MM, "create", "-y", "-p", node, "-c", "conda-forge", "nodejs"])
-        if rc != 0:
-            return {"error": "nodejs install failed: " + tail[-300:]}
-    env = dict(os.environ, PATH=f"{node}/bin:" + os.environ.get("PATH", ""))
-    for fmt in formats:
-        dst = f"{out_dir}/scene.{fmt}"
-        rc, tail = stream([f"{node}/bin/npx", "--yes", "@playcanvas/splat-transform", ply, dst], env=env)
-        results[fmt] = True if (rc == 0 and os.path.exists(dst)) else "failed: " + tail[-300:]
+    try:
+        if not ensure_micromamba():
+            return {"error": "micromamba could not be downloaded"}
+        node = "/content/node"
+        if not os.path.exists(f"{node}/bin/npx"):
+            rc, tail = stream([MM, "create", "-y", "-p", node, "-c", "conda-forge", "nodejs"])
+            if rc != 0:
+                return {"error": "nodejs install failed: " + tail[-300:]}
+        env = dict(os.environ, PATH=f"{node}/bin:" + os.environ.get("PATH", ""))
+        for fmt in formats:
+            dst = f"{out_dir}/scene.{fmt}"
+            rc, tail = stream([f"{node}/bin/npx", "--yes", "@playcanvas/splat-transform", ply, dst], env=env)
+            results[fmt] = True if (rc == 0 and os.path.exists(dst)) else "failed: " + tail[-300:]
+    except Exception as exc:
+        results["error"] = f"{type(exc).__name__}: {exc}"
     return results
 
 
@@ -426,8 +444,11 @@ def splat(job):
 
     ply_out, clean_stats = plys[-1], None
     if job.get("clean"):
-        clean_stats = clean_ply(plys[-1], "/content/splat_clean.ply", **job["clean"])
-        ply_out = "/content/splat_clean.ply"
+        try:
+            clean_stats = clean_ply(plys[-1], "/content/splat_clean.ply", **job["clean"])
+            ply_out = "/content/splat_clean.ply"
+        except Exception as exc:
+            clean_stats = {"error": f"{type(exc).__name__}: {exc}"}
 
     out_dir = "/content/splat_out"
     shutil.rmtree(out_dir, ignore_errors=True)
