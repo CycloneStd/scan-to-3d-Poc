@@ -403,6 +403,8 @@ def splat(job):
     t0 = time.time()
     info, src, train_env = install_gsplat()
     t_install = round(time.time() - t0, 1)
+    help_txt = subprocess.run([sys.executable, f"{src}/examples/simple_trainer.py", "default", "--help"],
+                              capture_output=True, text=True, env=train_env).stdout
 
     steps = int(job["max_steps"])
     res = "/content/splat_run"
@@ -430,6 +432,7 @@ def splat(job):
     out_dir = "/content/splat_out"
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir)
+    open(f"{out_dir}/trainer_help.txt", "w").write(help_txt)
     comp = compress_splat(ply_out, out_dir, job["compress"])
     if job["download_ply"] or not any(comp.get(f) is True for f in job["compress"]):
         shutil.copy(ply_out, f"{out_dir}/scene.ply")
