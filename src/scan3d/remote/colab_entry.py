@@ -431,7 +431,9 @@ def splat(job):
     rc, tail = stream([sys.executable, f"{src}/examples/simple_trainer.py", "default",
                        "--data_dir", ws, "--data_factor", str(job["data_factor"]), "--result_dir", res,
                        "--max_steps", str(steps), "--disable_viewer", "--eval_steps", str(steps),
-                       "--save_ply", "--ply_steps", str(steps)], env=train_env, every=200)
+                       "--save_ply", "--ply_steps", str(steps)] +
+                      [str(a) for a in job.get("extra_args") or []],
+                      env=train_env, every=200)
     t_train = round(time.time() - t0, 1)
     if rc != 0:
         raise RuntimeError("training failed:\n" + tail[-1500:])

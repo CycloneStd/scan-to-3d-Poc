@@ -76,6 +76,7 @@ class SplatStage(Stage):
         data, result_tar = roundtrip(
             ctx.cfg, out, tar, digest,
             {"action": "splat", "max_steps": int(sc["max_steps"]), "data_factor": int(sc["data_factor"]),
+             "extra_args": [str(a) for a in (sc.get("extra_args") or [])],
              "compress": list(sc["compress"]), "download_ply": bool(sc["download_ply"]),
              "clean": dict(sc["clean"]) if sc.get("clean") else None},
             "splat_result.part")

@@ -29,6 +29,7 @@ DEFAULTS = {
                "upload_workers": 1},
     "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,
               "max_image_size": None,
+              "extra_args": [],
               "download_ply": False, "compress": ["spz", "compressed.ply"],
               "clean": {"min_opacity": 0.3, "max_scale_frac": 0.05, "crop_factor": 1.5}},
 }
