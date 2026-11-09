@@ -226,3 +226,13 @@ runs/
 *.tar.gz
 exports/
 web/assets/*
+
+# WebXR app (Vite)
+webxr/node_modules/
+webxr/dist/
+webxr/.vite/
+webxr/.tsbuildinfo.*
+webxr/.env
+webxr/.env.*
+!webxr/.env.example
+webxr/coverage/
