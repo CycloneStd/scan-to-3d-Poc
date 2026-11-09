@@ -86,5 +86,5 @@ class SplatStage(Stage):
                     if p.is_file() and p.suffix in (".ply", ".spz", ".sog")}
         keys = ("psnr", "ssim", "lpips", "num_gaussians", "clean", "seconds_install", "seconds_train",
                 "compress", "timing", "wall_s", "bundle_mb", "upload_workers", "gsplat_version", "gpu")
-        return {k: data.get(k) for k in keys} | {"max_steps": sc["max_steps"],
+        return {k: data.get(k) for k in keys} | {"max_steps": sc["max_steps"], "extra_args": sc.get("extra_args"),
                                                   "max_image_size": size, "files_mb": files_mb}
