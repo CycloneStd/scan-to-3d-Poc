@@ -10,18 +10,25 @@ webxr/
 ├── src/
 │   ├── assets/
 │   │   └── fonts/           # Local font files and font-face styles
+│   ├── main.tsx              # Mounts React pages on application routes
+│   ├── pages/
+│   │   └── auth/
+│   │       └── LoginPage.tsx # React login page at /login
 │   ├── scripts/
 │   │   └── mobile-auth-menu.js
 │   └── styles/
 │       ├── components.css   # Shared styles exported with the landing design
+│       ├── components/
+│       │   └── input.css    # Input component styles
 │       ├── foundation.css    # Shared tokens and utility styles
-│       └── landing.css      # Landing page theme and overrides
+│       ├── landing.css      # Landing page theme and overrides
+│       └── login.css        # Login page layout
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
 ```
 
-The landing page stays in HTML. Add the product workflow in React under `src/app`, `src/pages`, `src/features`, and `src/components`; keep route components named in PascalCase (for example, `ScanLibraryPage.tsx`) and utility files in kebab-case. Those React folders will be introduced with the first workflow page rather than left as empty scaffolding.
+The landing page stays in HTML. Product pages are React components in `src/pages`, mounted by `src/main.tsx` when their route is requested. The Vite development server serves `index.html` as the app shell for `/login`; no separate login HTML file is needed. Route components use PascalCase names, and utilities use kebab-case.
 
 ## Planned product flow
 

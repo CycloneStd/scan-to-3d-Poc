@@ -1,5 +1,31 @@
 # Third-party icon notices
 
+## Login page photographs
+
+The decorative login cards load photographs from Pexels' image CDN. Pexels lists
+these images as free to use under its [license](https://www.pexels.com/license/):
+
+- Sneaker — Alok Das: [photo](https://www.pexels.com/photo/hands-holding-a-pair-of-black-sneakers-19845610/)
+- Sculpture studio — cottonbro studio: [photo](https://www.pexels.com/photo/white-concrete-statue-near-brown-wooden-chairs-3778080/)
+- Building facade — wal_ 172619: [photo](https://www.pexels.com/photo/modern-geometric-building-facade-architecture-36297579/)
+- Sculpture gallery — Fatih Turan: [photo](https://www.pexels.com/photo/modern-indoor-space-with-sculptures-and-visitors-29093113/)
+- Ceramic vase — Hanna Pad: [photo](https://www.pexels.com/photo/white-ceramic-vase-on-white-surface-8516708/)
+- Vintage car — Vladislav Likhomanov: [photo](https://www.pexels.com/photo/vintage-car-parked-in-a-parking-lot-8307237/)
+- Interior arch — Ksenia Chernaya: [photo](https://www.pexels.com/photo/arch-in-an-empty-room-6615808/)
+- Modern room — Curtis Adams: [photo](https://www.pexels.com/photo/interior-of-an-empty-modern-room-18041821/)
+- Mountain landscape — Artem Makarov: [photo](https://www.pexels.com/photo/mountain-landscape-with-rocks-covered-with-moss-and-lichens-18497614/)
+- High-top sneakers — Jeremy Polk: [photo](https://www.pexels.com/photo/black-snd-brown-high-top-sneakers-4029473/)
+- Bicycle — Pavel Danilyuk: [photo](https://www.pexels.com/photo/person-riding-a-bicycle-5807742/)
+- Plant detail — Alfredo Marco Pradil: [photo](https://www.pexels.com/photo/close-up-photo-of-a-plant-14179353/)
+
+## Hero image
+
+The landing-page hero uses `src/assets/arctic-iceberg-scan.webp`, sourced from
+[IVAR Studios' Arctic Environments for Avatar: The Last Airbender project](https://ivar.studio/projects/arctic-environments-avatar/).
+The project page describes the Arctic environments as captured with photogrammetry.
+No reuse license is stated on the source page; the image remains © IVAR Studios.
+Confirm reuse permission with IVAR Studios before public or commercial deployment.
+
 The account menu uses Lucide's `user-round-plus` icon under the ISC License:
 
 Copyright (c) 2026 Lucide Icons and Contributors
