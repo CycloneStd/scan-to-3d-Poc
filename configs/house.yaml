@@ -19,6 +19,8 @@ remote:
   session: scan3d
   gpu: T4
   high_mem: true
+  upload_workers: 4
+  chunk_mb: 4
   auth: null
 
 colmap:
@@ -30,3 +32,9 @@ features:
 
 sparse:
   mapper: incremental
+splat:
+  max_steps: 30000
+  max_image_size: 768
+  extra_args: ["--steps_scaler", "0.25"]
+
+  mkl
