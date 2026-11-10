@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -218,7 +219,7 @@ class ColabExecutor:
     def ping(self) -> None:
         self.alive()
 
-    def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 2, retries: int = 3) -> int:
+    def _upload_sequential(self, local: Path, prefix: str, chunk_mb: int = 2, retries: int = 3) -> int:
         tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
         try:
             parts = split_file(local, tmp, prefix, chunk_mb * 1024 * 1024)
@@ -246,6 +247,47 @@ class ColabExecutor:
             return len(parts)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _upload_once(self, part: Path) -> None:
+        cmd = self._base() + ["upload", "-s", self.session, str(part), f"/content/{part.name}"]
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.io_timeout)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"upload of {part.name} timed out")
+        if p.returncode != 0:
+            raise RuntimeError(f"upload of {part.name} failed: {((p.stdout or '') + (p.stderr or ''))[-200:]}")
+
+    def _upload_parallel(self, local: Path, prefix: str, chunk_mb: int, retries: int, workers: int) -> int:
+        tmp = Path(tempfile.mkdtemp(prefix="scan3d-up-"))
+        try:
+            parts = split_file(local, tmp, prefix, chunk_mb * 1024 * 1024)
+            started, sent = time.time(), 0
+
+            def send(part: Path) -> int:
+                for attempt in range(1, retries + 1):
+                    try:
+                        self._upload_once(part)
+                        return part.stat().st_size
+                    except RuntimeError:
+                        if attempt == retries:
+                            raise
+                        time.sleep(5 * attempt)
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(send, part) for part in parts]
+                for i, future in enumerate(as_completed(futures), 1):
+                    sent += future.result()
+                    log.info("uploaded %d/%d parts (%.2f MB/s average, %d workers)", i, len(parts),
+                             sent / 1e6 / max(time.time() - started, 1e-6), workers)
+            return len(parts)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def upload_chunked(self, local: Path, prefix: str, chunk_mb: int = 2, retries: int = 3,
+                       workers: int = 1) -> int:
+        if workers <= 1:
+            return self._upload_sequential(local, prefix, chunk_mb, retries)
+        return self._upload_parallel(local, prefix, chunk_mb, retries, workers)
 
     def download_chunked(self, prefix: str, n: int, dest: Path, retries: int = 3) -> None:
         """Simple (non-resumable) variant, used by the dense stage."""
