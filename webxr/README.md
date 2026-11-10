@@ -1,29 +1,50 @@
-# Scan3D WebXR prototype
+# Scan-to-3D WebXR
 
-The browser client workspace for the Scan-to-3D demonstration. It is intentionally isolated from the Python pipeline and the existing static viewer in `web/`. This folder contains tooling only; interface and application code will be defined separately with the UI.
+Vite serves the dark HTML landing page from `index.html`. Its styles and small menu script are separated from the document. The Mirage font and shared UI foundation remain local assets.
 
-## Stack
+## Source layout
 
-- React + TypeScript + Vite as the planned app and build stack.
-- Three.js for the planned browser 3D scene and WebXR session integration.
-- Spark is included as the intended Gaussian-splat renderer for connecting real pipeline outputs.
-- The existing Python pipeline remains the reconstruction runtime; this app will later talk to a small Python API for scan metadata, uploads, job state, and result URLs.
+```text
+webxr/
+├── index.html
+├── src/
+│   ├── assets/
+│   │   └── fonts/           # Local font files and font-face styles
+│   ├── scripts/
+│   │   └── mobile-auth-menu.js
+│   └── styles/
+│       ├── components.css   # Shared styles exported with the landing design
+│       ├── foundation.css    # Shared tokens and utility styles
+│       └── landing.css      # Landing page theme and overrides
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
 
-No UI, routes, authentication, API integration, or sample screens are included yet.
+The landing page stays in HTML. Add the product workflow in React under `src/app`, `src/pages`, `src/features`, and `src/components`; keep route components named in PascalCase (for example, `ScanLibraryPage.tsx`) and utility files in kebab-case. Those React folders will be introduced with the first workflow page rather than left as empty scaffolding.
 
-## Run locally
+## Planned product flow
+
+1. Authentication: sign in, sign up, and password recovery.
+2. Library: search, filters, scan status, and a new scan action.
+3. New scan: image or video upload and scan settings.
+4. Processing: reconstruction stages and progress.
+5. Result viewer: 3D inspection and exports.
+
+Authentication, uploads, processing jobs, and managed scan storage are not connected to the Python pipeline yet. Vite exposes `../web/assets` as its public directory for generated reconstruction assets.
+
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-For headset testing, serve the app from HTTPS (localhost is treated as a secure context for local development) and use a browser/device with WebXR support. WebXR support varies by browser and hardware.
-
-## Build
+## Production build
 
 ```bash
 npm run build
+npm run preview
 ```
 
-When UI work begins, connect the chosen viewer to the exported Gaussian splat or mesh assets and keep API/job orchestration in Python so the existing pipeline remains the source of reconstruction truth.
+`dist/` is generated output and is ignored by Git. Recreate it with `npm run build` when needed.
