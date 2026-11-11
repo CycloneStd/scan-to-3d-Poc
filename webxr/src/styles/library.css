@@ -5,7 +5,9 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-header-inner > a { justify-self: end; pointer-events: auto; }
 .library-new-scan { font-family: "Mirage", sans-serif; }
 .library-new-scan svg { width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 2; }
-.library-toolbar { display: flex; width: min(calc(100% - 32px), 1376px); flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 124px auto 0; }
+.library-page-heading { width: min(calc(100% - 32px), 1376px); margin: 124px auto 18px; }
+.library-page-heading h1 { margin: 0; color: #fff; font-family: "Mirage", sans-serif; font-size: 28px; font-weight: 600; letter-spacing: -.03em; }
+.library-toolbar { display: flex; width: min(calc(100% - 32px), 1376px); flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin: 0 auto; }
 .library-browse-controls { display: flex; min-width: 0; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 16px; }
 .library-search-field { min-width: 0; max-width: 480px; flex: 1 1 360px; }
 .library-search-field.m-input:has(.m-input__field:focus-within) { outline-color: var(--app-color-primary-border-muted); }
@@ -23,14 +25,12 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-sort-card svg { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .library-sort-card:focus-within { outline: 2px solid var(--app-color-primary-border-muted); outline-offset: 2px; }
 .library-results { width: min(calc(100% - 32px), 1376px); margin: 44px auto 64px; }
-.library-results-header { margin-bottom: 28px; }
-.library-results-header h1 { margin: 0; color: #fff; font-family: "Mirage", sans-serif; font-size: 28px; font-weight: 600; letter-spacing: -.03em; }
 .library-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .library-item-card { min-width: 0; min-height: 360px; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
 .library-card-media { width: 100%; height: 280px; flex: 0 0 280px; overflow: hidden; }
 .library-card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
 @media (max-width: 760px) {
-  .library-toolbar { margin-top: 116px; }
+  .library-page-heading { margin-top: 116px; }
   .library-sort-card { margin-left: auto; }
   .library-results { margin-top: 34px; }
   .library-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -39,7 +39,8 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
   .library-header-inner { width: calc(100% - 24px); padding: 12px 0; }
   .library-header-inner > .ui-header-nav { height: 60px; border-radius: 1.5rem; }
   .library-header-inner > a { min-height: 48px; padding-inline: 12px; }
-  .library-toolbar { width: calc(100% - 24px); margin-top: 108px; }
+  .library-page-heading, .library-toolbar { width: calc(100% - 24px); }
+  .library-page-heading { margin-top: 108px; }
   .library-browse-controls { flex-basis: 100%; }
   .library-search-field { max-width: none; }
   .library-results { width: calc(100% - 24px); margin-top: 28px; }

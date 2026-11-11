@@ -52,6 +52,10 @@ export default function LibraryPage() {
         </div>
       </header>
 
+      <header className="library-page-heading">
+        <h1>My library</h1>
+      </header>
+
       <section className="library-toolbar" aria-label="Search your library">
         <div className="library-browse-controls">
           <div className="library-search-field m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl" data-size="lg">
@@ -112,9 +116,6 @@ export default function LibraryPage() {
       </section>
 
       <section className="library-results" aria-label="Library cards">
-        <header className="library-results-header">
-          <h1>My library</h1>
-        </header>
         <div className="library-card-grid" aria-hidden="true">
           {libraryCardImages.map((image, index) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={index}>
