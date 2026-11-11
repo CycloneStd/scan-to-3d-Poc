@@ -6,17 +6,57 @@ import '../styles/components/input.css'
 
 const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
 type LibraryCategory = (typeof libraryFilters)[number]
+type ScanStatus = 'Ready' | 'Processing' | 'Failed'
+type ScanCard = {
+  id: number
+  image: string
+  name: string
+  type: 'Object' | 'Room' | 'Building'
+  date: string
+  status: ScanStatus
+  progress?: number
+  failureReason?: string
+}
 const libraryCardImages = [
   icebergPreview,
   ...[19845610, 3778080, 36297579, 29093113, 8516708].map(
     (photoId) => `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=720&q=80`,
   ),
 ]
+const initialScans: ScanCard[] = [
+  { id: 1, image: libraryCardImages[0], name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready' },
+  { id: 2, image: libraryCardImages[1], name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', progress: 68 },
+  { id: 3, image: libraryCardImages[2], name: 'Art Studio', type: 'Room', date: 'Nov 8', status: 'Failed', failureReason: 'A few images could not be processed.' },
+  { id: 4, image: libraryCardImages[3], name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready' },
+  { id: 5, image: libraryCardImages[4], name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready' },
+  { id: 6, image: libraryCardImages[5], name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready' },
+]
 
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
   const [sortBy, setSortBy] = useState('recent')
   const [searchQuery, setSearchQuery] = useState('')
+  const [scans, setScans] = useState(initialScans)
+
+  const visibleScans = scans
+    .filter((scan) => activeFilter === 'All' || scan.type === activeFilter.slice(0, -1))
+    .filter((scan) => scan.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === 'oldest') return a.id - b.id
+      if (sortBy === 'name-asc') return a.name.localeCompare(b.name)
+      if (sortBy === 'name-desc') return b.name.localeCompare(a.name)
+      return b.id - a.id
+    })
+
+  function renameScan(id: number, name: string) {
+    setScans((items) => items.map((scan) => scan.id === id ? { ...scan, name } : scan))
+  }
+
+  function retryScan(id: number) {
+    setScans((items) => items.map((scan) => scan.id === id
+      ? { ...scan, status: 'Processing', progress: 0, failureReason: undefined }
+      : scan))
+  }
 
   return (
     <main className="library-shell">
@@ -129,11 +169,36 @@ export default function LibraryPage() {
       </section>
 
       <section className="library-results" aria-label="Library cards">
-        <div className="library-card-grid" aria-hidden="true">
-          {libraryCardImages.map((image, index) => (
-            <article className="library-item-card rounded-surface-md bg-surface-low" key={index}>
+        <div className="library-card-grid">
+          {visibleScans.map((scan) => (
+            <article className="library-item-card rounded-surface-md bg-surface-low" key={scan.id}>
               <div className="library-card-media">
-                <img src={image} alt="" loading="lazy" />
+                <img src={scan.image} alt="" loading="lazy" />
+              </div>
+              <div className="library-card-details">
+                <div className="library-card-title-row">
+                  <input
+                    aria-label={`Rename ${scan.name}`}
+                    value={scan.name}
+                    onChange={(event) => renameScan(scan.id, event.target.value)}
+                  />
+                  <span className={`library-status library-status-${scan.status.toLowerCase()}`}>{scan.status}</span>
+                </div>
+                {scan.status === 'Processing' && (
+                  <div className="library-progress" aria-label={`Processing ${scan.progress}%`}>
+                    <span style={{ width: `${scan.progress ?? 0}%` }} />
+                  </div>
+                )}
+                {scan.status === 'Failed' && (
+                  <div className="library-failure-row">
+                    <p>{scan.failureReason}</p>
+                    <button type="button" onClick={() => retryScan(scan.id)}>Retry</button>
+                  </div>
+                )}
+                <div className="library-card-meta">
+                  <span>{scan.type}</span>
+                  <span>{scan.date}</span>
+                </div>
               </div>
             </article>
           ))}

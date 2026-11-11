@@ -34,6 +34,21 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-item-card { min-width: 0; min-height: 360px; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
 .library-card-media { width: 100%; height: 280px; flex: 0 0 280px; overflow: hidden; }
 .library-card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.library-card-details { display: grid; gap: 10px; padding: 14px 16px 16px; }
+.library-card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.library-card-title-row input { min-width: 0; width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--app-color-surface-fg); font: inherit; font-family: "Mirage", sans-serif; font-size: 16px; font-weight: 550; }
+.library-card-title-row input:focus-visible { outline: 1px solid var(--app-color-primary-border-muted); outline-offset: 3px; border-radius: 2px; }
+.library-status { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; background: var(--app-color-surface-bg-high); color: var(--app-color-surface-fg); font-size: 11px; line-height: 1; }
+.library-status-ready { background: #1e3529; color: #a9e6bd; }
+.library-status-processing { background: #34322a; color: #f0d58a; }
+.library-status-failed { background: #3b2727; color: #f1aaaa; }
+.library-progress { height: 4px; overflow: hidden; border-radius: 99px; background: var(--app-color-surface-bg-higher); }
+.library-progress span { display: block; height: 100%; border-radius: inherit; background: #f0d58a; transition: width 180ms ease; }
+.library-failure-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.library-failure-row p { overflow: hidden; margin: 0; color: #f1aaaa; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.library-failure-row button { flex: 0 0 auto; padding: 4px 8px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 8px; background: transparent; color: var(--app-color-surface-fg); font: inherit; font-size: 11px; cursor: pointer; }
+.library-failure-row button:hover { background: var(--app-color-surface-bg-high); }
+.library-card-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--app-color-surface-fg-muted); font-size: 12px; }
 @media (max-width: 760px) {
   .library-page-heading { margin-top: 116px; }
   .library-sort-card { margin-left: auto; }
