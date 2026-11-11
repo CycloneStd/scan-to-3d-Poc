@@ -182,6 +182,7 @@ export default function LibraryPage() {
                     value={scan.name}
                     onChange={(event) => renameScan(scan.id, event.target.value)}
                   />
+                  <span className="library-card-date">{scan.date}</span>
                   {scan.status !== 'Ready' && (
                     <span className={`library-status library-status-${scan.status.toLowerCase()}`}>
                       {scan.status}
@@ -201,7 +202,6 @@ export default function LibraryPage() {
                 )}
                 <div className="library-card-meta">
                   <span>{scan.type}</span>
-                  <span>{scan.date}</span>
                 </div>
               </div>
             </article>
