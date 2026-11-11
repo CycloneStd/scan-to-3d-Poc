@@ -38,19 +38,7 @@ export default function LibraryPage() {
             </a>
           </div>
           <div className="library-header-actions">
-            <a
-              className="library-new-scan mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent login-action"
-              href="/scan"
-              data-mode="solid"
-              data-size="md"
-              data-variant="primary"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New Scan
-            </a>
-            <a className="library-logout" href="/login">
+            <a className="library-logout library-filter-pill" href="/login">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9" />
               </svg>
@@ -61,7 +49,21 @@ export default function LibraryPage() {
       </header>
 
       <header className="library-page-heading">
-        <h1>My library</h1>
+        <div className="library-page-heading-inner">
+          <h1>My library</h1>
+          <a
+            className="library-new-scan mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent login-action"
+            href="/scan"
+            data-mode="solid"
+            data-size="md"
+            data-variant="primary"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New Scan
+          </a>
+        </div>
       </header>
 
       <section className="library-toolbar" aria-label="Search your library">
