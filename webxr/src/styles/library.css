@@ -43,10 +43,6 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-status-ready { background: #1e3529; color: #a9e6bd; }
 .library-status-processing { background: #34322a; color: #f0d58a; }
 .library-status-failed { background: #3b2727; color: #f1aaaa; }
-.library-failure-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.library-failure-row p { overflow: hidden; margin: 0; color: #f1aaaa; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.library-failure-row button { flex: 0 0 auto; padding: 4px 8px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 8px; background: transparent; color: var(--app-color-surface-fg); font: inherit; font-size: 11px; cursor: pointer; }
-.library-failure-row button:hover { background: var(--app-color-surface-bg-high); }
 .library-card-meta { display: flex; justify-content: space-between; gap: 12px; color: #fff; font-size: 14px; }
 .library-pipeline-row, .library-model-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #fff; font-size: 12px; }
 .library-source-detail, .library-time-detail, .library-quality-tag { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; padding: 0 12px; border: 2px solid transparent; border-radius: var(--app-dimension-radius-lg, 1rem); background: var(--app-color-surface-bg-high); color: #fff; white-space: nowrap; }

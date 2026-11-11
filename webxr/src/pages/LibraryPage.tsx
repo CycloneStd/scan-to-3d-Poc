@@ -18,7 +18,6 @@ type ScanCard = {
   sourceType: 'photos' | 'video'
   processingTime: string
   quality: 'Fast' | 'Balanced' | 'High detail'
-  failureReason?: string
 }
 const libraryCardImages = [
   icebergPreview,
@@ -29,7 +28,7 @@ const libraryCardImages = [
 const initialScans: ScanCard[] = [
   { id: 1, image: libraryCardImages[0], name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', processingTime: '4 min 12 s', quality: 'High detail' },
   { id: 2, image: libraryCardImages[1], name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced' },
-  { id: 3, image: libraryCardImages[2], name: 'Art Studio', type: 'Room', date: 'Nov 8', status: 'Failed', source: '42 photos', sourceType: 'photos', processingTime: '1 min 08 s', quality: 'Fast', failureReason: 'Error' },
+  { id: 3, image: libraryCardImages[2], name: 'Art Studio', type: 'Room', date: 'Nov 8', status: 'Failed', source: '42 photos', sourceType: 'photos', processingTime: '1 min 08 s', quality: 'Fast' },
   { id: 4, image: libraryCardImages[3], name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail' },
   { id: 5, image: libraryCardImages[4], name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
   { id: 6, image: libraryCardImages[5], name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
@@ -53,12 +52,6 @@ export default function LibraryPage() {
 
   function renameScan(id: number, name: string) {
     setScans((items) => items.map((scan) => scan.id === id ? { ...scan, name } : scan))
-  }
-
-  function retryScan(id: number) {
-    setScans((items) => items.map((scan) => scan.id === id
-      ? { ...scan, status: 'Processing', failureReason: undefined }
-      : scan))
   }
 
   return (
@@ -188,16 +181,10 @@ export default function LibraryPage() {
                   <span className="library-card-date">{scan.date}</span>
                   {scan.status !== 'Ready' && (
                     <span className={`library-status library-status-${scan.status.toLowerCase()}`}>
-                      {scan.status}
+                      {scan.status === 'Failed' ? 'Error' : scan.status}
                     </span>
                   )}
                 </div>
-                {scan.status === 'Failed' && (
-                  <div className="library-failure-row">
-                    <p>{scan.failureReason}</p>
-                    <button type="button" onClick={() => retryScan(scan.id)}>Retry</button>
-                  </div>
-                )}
                 <div className="library-card-meta">
                   <span>{scan.type}</span>
                 </div>
