@@ -88,8 +88,11 @@ export default function LibraryPage() {
             onChange={(event) => setSortBy(event.target.value)}
           >
             <option value="recent">Most Recent</option>
-            <option value="name">Name</option>
-            <option value="images">Most Images</option>
+            <option value="oldest">Oldest</option>
+            <option value="name-asc">Name (A–Z)</option>
+            <option value="name-desc">Name (Z–A)</option>
+            <option value="images-desc">Most Images Used</option>
+            <option value="images-asc">Fewest Images Used</option>
           </select>
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="m5 7.5 5 5 5-5" />
