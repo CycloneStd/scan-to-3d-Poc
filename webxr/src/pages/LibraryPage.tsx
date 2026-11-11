@@ -112,6 +112,10 @@ export default function LibraryPage() {
       </section>
 
       <section className="library-results" aria-label="Library cards">
+        <header className="library-results-header">
+          <h1>My library</h1>
+          <p>From small objects to whole spaces, all your captures live here.</p>
+        </header>
         <div className="library-card-grid" aria-hidden="true">
           {libraryCardImages.map((image, index) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={index}>
