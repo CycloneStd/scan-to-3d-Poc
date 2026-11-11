@@ -43,8 +43,6 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-status-ready { background: #1e3529; color: #a9e6bd; }
 .library-status-processing { background: #34322a; color: #f0d58a; }
 .library-status-failed { background: #3b2727; color: #f1aaaa; }
-.library-progress { height: 4px; overflow: hidden; border-radius: 99px; background: var(--app-color-surface-bg-higher); }
-.library-progress span { display: block; height: 100%; border-radius: inherit; background: #f0d58a; transition: width 180ms ease; }
 .library-failure-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .library-failure-row p { overflow: hidden; margin: 0; color: #f1aaaa; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .library-failure-row button { flex: 0 0 auto; padding: 4px 8px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 8px; background: transparent; color: var(--app-color-surface-fg); font: inherit; font-size: 11px; cursor: pointer; }
@@ -54,7 +52,7 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-source-detail, .library-time-detail { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .library-source-detail svg, .library-time-detail svg { width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 .library-quality-tag { padding: 4px 8px; border-radius: 999px; background: var(--app-color-surface-bg-high); color: #fff; font-size: 11px; white-space: nowrap; }
-.library-model-row { justify-content: space-between; color: #fff; }
+.library-model-row { justify-content: flex-start; color: #fff; }
 .library-format-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .library-format-list span { padding: 3px 7px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 6px; color: #fff; font-size: 10px; line-height: 1.2; }
 @media (max-width: 760px) {
