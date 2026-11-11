@@ -97,6 +97,7 @@ function LoginField({
 export default function LoginPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    window.location.assign('/library')
   }
 
   return (

@@ -1,9 +1,9 @@
 async function renderRoute() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
-  if (pathname !== '/login' && pathname !== '/signup') return
+  if (pathname !== '/login' && pathname !== '/signup' && pathname !== '/library') return
 
-  document.body.className = 'login-page bg-surface-base text-surface'
-  document.body.innerHTML = '<div id="login-root"></div>'
+  document.body.className = `${pathname === '/library' ? 'library-page' : 'login-page'} bg-surface-base text-surface`
+  document.body.innerHTML = '<div id="app-root"></div>'
 
   const [{ StrictMode, createElement }, { createRoot }, pageModule] =
     await Promise.all([
@@ -11,11 +11,13 @@ async function renderRoute() {
       import('react-dom/client'),
       pathname === '/signup'
         ? import('./pages/auth/SignupPage')
-        : import('./pages/auth/LoginPage'),
+        : pathname === '/library'
+          ? import('./pages/LibraryPage')
+          : import('./pages/auth/LoginPage'),
     ])
 
-  const rootElement = document.getElementById('login-root')
-  if (!rootElement) throw new Error('Login page root element was not found.')
+  const rootElement = document.getElementById('app-root')
+  if (!rootElement) throw new Error('Application root element was not found.')
 
   createRoot(rootElement).render(
     createElement(StrictMode, null, createElement(pageModule.default)),
