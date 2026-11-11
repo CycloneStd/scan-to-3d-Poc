@@ -25,7 +25,6 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-results { width: min(calc(100% - 32px), 1376px); margin: 44px auto 64px; }
 .library-results-header { margin-bottom: 28px; }
 .library-results-header h1 { margin: 0; color: #fff; font-family: "Mirage", sans-serif; font-size: 28px; font-weight: 600; letter-spacing: -.03em; }
-.library-results-header p { margin: 10px 0 0; color: #fff; font-size: 16px; line-height: 1.45; opacity: .88; }
 .library-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .library-item-card { min-width: 0; min-height: 360px; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
 .library-card-media { width: 100%; height: 280px; flex: 0 0 280px; overflow: hidden; }
