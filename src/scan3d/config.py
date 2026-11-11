@@ -32,6 +32,8 @@ DEFAULTS = {
               "extra_args": [],
               "download_ply": False, "compress": ["spz", "compressed.ply"],
               "clean": {"min_opacity": 0.3, "max_scale_frac": 0.05, "crop_factor": 1.5}},
+              
+    "ar": {"target_faces": 100000, "texture_px": 2048, "jpeg_quality": 88, "scale_factor": None},
 }
 
 
