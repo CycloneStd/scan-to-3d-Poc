@@ -54,7 +54,7 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-quality-tag { padding: 4px 8px; border-radius: 999px; background: var(--app-color-surface-bg-high); color: #fff; font-size: 11px; white-space: nowrap; }
 .library-model-row { justify-content: flex-end; color: #fff; }
 .library-format-list { display: flex; width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.library-format-list span { padding: 4px 9px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 7px; color: #fff; font-size: 12px; line-height: 1.2; }
+.library-format-list span { display: inline-flex; min-height: 32px; align-items: center; padding: 0 12px; border: 2px solid transparent; border-radius: var(--app-dimension-radius-lg, 1rem); background: var(--app-color-surface-bg-high); color: #fff; font-size: 12px; line-height: 1; }
 @media (max-width: 760px) {
   .library-page-heading { margin-top: 116px; }
   .library-sort-card { margin-left: auto; }
