@@ -1,3 +1,10 @@
+      .landing-brand { display: inline-flex; width: 148px; align-items: center; text-decoration: none; }
+      .landing-brand img { display: block; width: 100%; height: auto; }
+      .landing-brand:focus-visible { outline: 2px solid var(--app-color-primary-border-muted); outline-offset: 6px; border-radius: 4px; }
+      .mobile-landing-brand { margin-left: 12px; }
+      @media (max-width: 520px) {
+        .mobile-landing-brand { width: 112px; margin-left: 8px; }
+      }
 .login-action { background-color: #000; color: #fff; border-color: #000; }
       .login-action:hover { background-color: #202020; }
       html[data-color-mode="dark"] .login-action { background-color: #f1f1f1; color: #151515; border-color: #f1f1f1; }
@@ -93,15 +100,13 @@
         line-height: 34px;
         color: #f1f1f1;
       }
-      .signup-label,
-      .home-label {
+      .signup-label {
         font-family: Mirage;
         font-weight: 450;
         line-height: 34px;
         color: #000;
       }
-      html[data-color-mode="dark"] .signup-label,
-      html[data-color-mode="dark"] .home-label { color: #fff; }
+      html[data-color-mode="dark"] .signup-label { color: #fff; }
       @media (min-width: 64rem) {
         .mobile-auth-menu { display: none !important; }
       }
