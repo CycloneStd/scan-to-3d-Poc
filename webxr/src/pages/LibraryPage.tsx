@@ -6,6 +6,7 @@ const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] a
 
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<(typeof libraryFilters)[number]>('All')
+  const [sortBy, setSortBy] = useState('recent')
 
   return (
     <main className="library-shell">
@@ -43,41 +44,55 @@ export default function LibraryPage() {
       </header>
 
       <section className="library-toolbar" aria-label="Search your library">
-        <div className="library-search-field m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl" data-size="lg">
-          <span
-            className="m-input__target"
-            aria-hidden="true"
-            onClick={() => document.getElementById('library-search')?.focus()}
-          />
-          <span className="m-input__field">
-            <span className="m-input__control">
-              <input
-                id="library-search"
-                name="search"
-                className="mirror-input"
-                type="search"
-                placeholder="Search your library"
-                autoComplete="off"
-              />
+        <div className="library-browse-controls">
+          <div className="library-search-field m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl" data-size="lg">
+            <span
+              className="m-input__target"
+              aria-hidden="true"
+              onClick={() => document.getElementById('library-search')?.focus()}
+            />
+            <span className="m-input__field">
+              <span className="m-input__control">
+                <input
+                  id="library-search"
+                  name="search"
+                  className="mirror-input"
+                  type="search"
+                  placeholder="Search your library"
+                  autoComplete="off"
+                />
+              </span>
+              <label className="m-input__label" htmlFor="library-search">
+                Search your library
+              </label>
             </span>
-            <label className="m-input__label" htmlFor="library-search">
-              Search your library
-            </label>
-          </span>
+          </div>
+          <div className="library-filter-list" role="group" aria-label="Filter library by category">
+            {libraryFilters.map((filter) => (
+              <button
+                key={filter}
+                className={`library-filter-pill${activeFilter === filter ? ' is-active' : ''}`}
+                type="button"
+                aria-pressed={activeFilter === filter}
+                onClick={() => setActiveFilter(filter)}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="library-filter-list" role="group" aria-label="Filter library by category">
-          {libraryFilters.map((filter) => (
-            <button
-              key={filter}
-              className={`library-filter-pill${activeFilter === filter ? ' is-active' : ''}`}
-              type="button"
-              aria-pressed={activeFilter === filter}
-              onClick={() => setActiveFilter(filter)}
-            >
-              {filter}
-            </button>
-          ))}
-        </div>
+        <label className="library-sort-card" htmlFor="library-sort">
+          <span className="library-sort-label">Sort by</span>
+          <select
+            id="library-sort"
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value)}
+          >
+            <option value="recent">Most Recent</option>
+            <option value="name">Name</option>
+            <option value="images">Most Images</option>
+          </select>
+        </label>
       </section>
     </main>
   )
