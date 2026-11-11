@@ -182,7 +182,11 @@ export default function LibraryPage() {
                     value={scan.name}
                     onChange={(event) => renameScan(scan.id, event.target.value)}
                   />
-                  <span className={`library-status library-status-${scan.status.toLowerCase()}`}>{scan.status}</span>
+                  {scan.status !== 'Ready' && (
+                    <span className={`library-status library-status-${scan.status.toLowerCase()}`}>
+                      {scan.status}
+                    </span>
+                  )}
                 </div>
                 {scan.status === 'Processing' && (
                   <div className="library-progress" aria-label={`Processing ${scan.progress}%`}>
