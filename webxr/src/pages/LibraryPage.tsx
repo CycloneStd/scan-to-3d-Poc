@@ -118,14 +118,6 @@ export default function LibraryPage() {
               <div className="library-card-media">
                 <img src={image} alt="" loading="lazy" />
               </div>
-              <div className="library-card-details">
-                <h2>Untitled scan</h2>
-                <div className="library-card-meta">
-                  <span>Type: —</span>
-                  <span>Images: —</span>
-                  <span>Created: —</span>
-                </div>
-              </div>
             </article>
           ))}
         </div>
