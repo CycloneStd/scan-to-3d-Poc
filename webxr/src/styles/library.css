@@ -50,6 +50,13 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-failure-row button { flex: 0 0 auto; padding: 4px 8px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 8px; background: transparent; color: var(--app-color-surface-fg); font: inherit; font-size: 11px; cursor: pointer; }
 .library-failure-row button:hover { background: var(--app-color-surface-bg-high); }
 .library-card-meta { display: flex; justify-content: space-between; gap: 12px; color: #fff; font-size: 14px; }
+.library-pipeline-row, .library-model-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: #fff; font-size: 12px; }
+.library-source-detail, .library-time-detail { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.library-source-detail svg, .library-time-detail svg { width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
+.library-quality-tag { padding: 4px 8px; border-radius: 999px; background: var(--app-color-surface-bg-high); color: #fff; font-size: 11px; white-space: nowrap; }
+.library-model-row { justify-content: space-between; color: #fff; }
+.library-format-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.library-format-list span { padding: 3px 7px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 6px; color: #fff; font-size: 10px; line-height: 1.2; }
 @media (max-width: 760px) {
   .library-page-heading { margin-top: 116px; }
   .library-sort-card { margin-left: auto; }

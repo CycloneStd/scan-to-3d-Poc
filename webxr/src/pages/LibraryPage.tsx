@@ -14,6 +14,12 @@ type ScanCard = {
   type: 'Object' | 'Room' | 'Building'
   date: string
   status: ScanStatus
+  source: string
+  sourceType: 'photos' | 'video'
+  processingTime: string
+  quality: 'Fast' | 'Balanced' | 'High detail'
+  modelSize: string
+  formats: string[]
   progress?: number
   failureReason?: string
 }
@@ -24,12 +30,12 @@ const libraryCardImages = [
   ),
 ]
 const initialScans: ScanCard[] = [
-  { id: 1, image: libraryCardImages[0], name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready' },
-  { id: 2, image: libraryCardImages[1], name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', progress: 68 },
-  { id: 3, image: libraryCardImages[2], name: 'Art Studio', type: 'Room', date: 'Nov 8', status: 'Failed', failureReason: 'A few images could not be processed.' },
-  { id: 4, image: libraryCardImages[3], name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready' },
-  { id: 5, image: libraryCardImages[4], name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready' },
-  { id: 6, image: libraryCardImages[5], name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready' },
+  { id: 1, image: libraryCardImages[0], name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', processingTime: '4 min 12 s', quality: 'High detail', modelSize: '480k faces · 6.8 MB', formats: ['GLB', 'OBJ', 'PLY'] },
+  { id: 2, image: libraryCardImages[1], name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced', modelSize: '—', formats: ['GLB'], progress: 68 },
+  { id: 3, image: libraryCardImages[2], name: 'Art Studio', type: 'Room', date: 'Nov 8', status: 'Failed', source: '42 photos', sourceType: 'photos', processingTime: '1 min 08 s', quality: 'Fast', modelSize: '—', formats: [], failureReason: 'A few images could not be processed.' },
+  { id: 4, image: libraryCardImages[3], name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail', modelSize: '1.2M faces · 18.4 MB', formats: ['GLB', 'OBJ', 'PLY'] },
+  { id: 5, image: libraryCardImages[4], name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced', modelSize: '620k faces · 9.1 MB', formats: ['GLB', 'PLY'] },
+  { id: 6, image: libraryCardImages[5], name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast', modelSize: '210k faces · 3.4 MB', formats: ['GLB', 'OBJ'] },
 ]
 
 export default function LibraryPage() {
@@ -202,6 +208,32 @@ export default function LibraryPage() {
                 )}
                 <div className="library-card-meta">
                   <span>{scan.type}</span>
+                </div>
+                <div className="library-pipeline-row">
+                  <span className="library-source-detail">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      {scan.sourceType === 'video' ? (
+                        <path d="M3 5.5h9.5v9H3zM12.5 8l4.5-2v8l-4.5-2" />
+                      ) : (
+                        <path d="M3.5 5.5h13v10h-13zM6 5.5l1-2h5l1 2M10 8a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" />
+                      )}
+                    </svg>
+                    {scan.source}
+                  </span>
+                  <span className="library-time-detail">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="7" />
+                      <path d="M10 6v4l2.5 1.5" />
+                    </svg>
+                    {scan.processingTime}
+                  </span>
+                  <span className="library-quality-tag">{scan.quality}</span>
+                </div>
+                <div className="library-model-row">
+                  <span>{scan.modelSize}</span>
+                  <div className="library-format-list" aria-label="Available formats">
+                    {scan.formats.map((format) => <span key={format}>{format}</span>)}
+                  </div>
                 </div>
               </div>
             </article>
