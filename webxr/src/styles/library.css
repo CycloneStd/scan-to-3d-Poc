@@ -3,8 +3,9 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-header { position: fixed; z-index: 30; top: 0; left: 0; width: 100%; pointer-events: none; }
 .library-header-inner { display: grid; width: min(calc(100% - 32px), 1376px); grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; margin: 0 auto; padding: 16px 0; }
 .library-header-inner > a { justify-self: end; pointer-events: auto; }
+.library-new-scan { font-family: "Mirage", sans-serif; }
 .library-new-scan svg { width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 2; }
-.library-toolbar { display: flex; width: min(calc(100% - 32px), 1376px); flex-wrap: wrap; align-items: center; gap: 16px; margin: 116px auto 0; }
+.library-toolbar { display: flex; width: min(calc(100% - 32px), 1376px); flex-wrap: wrap; align-items: center; gap: 16px; margin: 124px auto 0; }
 .library-search-field { min-width: 0; max-width: 480px; flex: 1 1 360px; }
 .library-search-field.m-input:has(.m-input__field:focus-within) { outline-color: var(--app-color-primary-border-muted); }
 .library-search-field.m-input:has(.m-input__field:focus-within) .m-input__target { outline-color: transparent; outline-width: 0; }
@@ -16,12 +17,12 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-filter-pill:active { transform: scale(0.97); }
 .library-filter-pill:focus-visible { outline: 2px solid var(--app-color-primary-border-muted); outline-offset: 2px; }
 @media (max-width: 760px) {
-  .library-toolbar { margin-top: 108px; }
+  .library-toolbar { margin-top: 116px; }
 }
 @media (max-width: 600px) {
   .library-header-inner { width: calc(100% - 24px); padding: 12px 0; }
   .library-header-inner > .ui-header-nav { height: 60px; border-radius: 1.5rem; }
   .library-header-inner > a { min-height: 48px; padding-inline: 12px; }
-  .library-toolbar { width: calc(100% - 24px); margin-top: 100px; }
+  .library-toolbar { width: calc(100% - 24px); margin-top: 108px; }
   .library-search-field { max-width: none; }
 }
