@@ -37,7 +37,7 @@ export default function LibraryPage() {
         </div>
       </header>
 
-      <section className="library-toolbar" aria-label="Search and filter your library">
+      <section className="library-toolbar" aria-label="Search your library">
         <label className="library-search-field m-input relative box-border flex w-full flex-row items-center justify-between rounded-component-xl transition-all duration-100 ease-linear h-14 gap-1.5" data-size="lg" data-simple="true">
           <span className="library-search-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -52,24 +52,6 @@ export default function LibraryPage() {
             <span className="m-input__label">Search your library</span>
           </span>
         </label>
-        <div className="library-filters">
-          <label className="library-filter-control">
-            <span className="library-filter-label">Type</span>
-            <select aria-label="Filter by type" defaultValue="all">
-              <option value="all">All items</option>
-              <option value="scans">Scans</option>
-              <option value="models">3D models</option>
-            </select>
-          </label>
-          <label className="library-filter-control">
-            <span className="library-filter-label">Sort</span>
-            <select aria-label="Sort library items" defaultValue="newest">
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="name">Name</option>
-            </select>
-          </label>
-        </div>
       </section>
     </main>
   )
