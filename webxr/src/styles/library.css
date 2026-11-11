@@ -32,8 +32,11 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-results { width: min(calc(100% - 32px), 1600px); margin: 44px auto 64px; }
 .library-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .library-item-card { min-width: 0; min-height: 360px; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
-.library-card-media { width: 100%; height: 280px; flex: 0 0 280px; overflow: hidden; }
-.library-card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.library-card-media { position: relative; width: 100%; height: 280px; flex: 0 0 280px; overflow: hidden; background: #17191d; }
+.library-preview-canvas { position: absolute; z-index: 1; inset: 0; }
+.library-preview-canvas canvas { display: block; width: 100%; height: 100%; }
+.library-preview-placeholder { position: absolute; z-index: 2; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #17191d; color: #a6aab2; font-size: 13px; font-weight: 500; }
+.library-preview-placeholder svg { width: 40px; height: 40px; fill: none; stroke: #8c929c; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 .library-card-details { display: grid; gap: 10px; padding: 14px 16px 16px; }
 .library-card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .library-card-title-row input { min-width: 0; width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--app-color-surface-fg); font: inherit; font-family: "Mirage", sans-serif; font-size: 18px; font-weight: 550; }

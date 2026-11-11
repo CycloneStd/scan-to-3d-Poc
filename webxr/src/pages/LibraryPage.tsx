@@ -1,37 +1,44 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import cycloneWordmark from '../assets/cyclone-wordmark.png'
-import icebergPreview from '../assets/arctic-iceberg-scan.webp'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
+const ModelPreview = lazy(() => import('../components/library/ModelPreview'))
 const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
 type LibraryCategory = (typeof libraryFilters)[number]
 type ScanStatus = 'Ready' | 'Processing'
+type ModelPreviewFormat = 'ply' | 'glb' | 'obj'
 type ScanCard = {
   id: number
-  image: string
   name: string
   type: 'Object' | 'Room' | 'Building'
   date: string
   status: ScanStatus
+  previewUrl?: string
+  previewFormat?: ModelPreviewFormat
   source: string
   sourceType: 'photos' | 'video'
   processingTime: string
   quality: 'Fast' | 'Balanced' | 'High detail'
 }
-const libraryCardImages = [
-  icebergPreview,
-  ...[19845610, 3778080, 36297579, 29093113, 8516708].map(
-    (photoId) => `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=720&q=80`,
-  ),
-]
 const initialScans: ScanCard[] = [
-  { id: 1, image: libraryCardImages[0], name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', processingTime: '4 min 12 s', quality: 'High detail' },
-  { id: 2, image: libraryCardImages[1], name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced' },
-  { id: 4, image: libraryCardImages[3], name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail' },
-  { id: 5, image: libraryCardImages[4], name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
-  { id: 6, image: libraryCardImages[5], name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
+  { id: 1, name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', processingTime: '4 min 12 s', quality: 'High detail' },
+  { id: 2, name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced' },
+  { id: 4, name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail' },
+  { id: 5, name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
+  { id: 6, name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
 ]
+
+function PreviewPlaceholder({ label }: { label: string }) {
+  return (
+    <div className="library-preview-placeholder" aria-hidden="true">
+      <svg viewBox="0 0 48 48">
+        <path d="m24 4 18 10v20L24 44 6 34V14zM6 14l18 10 18-10M24 24v20M15 9l18 10v11L15 19z" />
+      </svg>
+      <span>{label}</span>
+    </div>
+  )
+}
 
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
@@ -167,9 +174,15 @@ export default function LibraryPage() {
         <div className="library-card-grid">
           {visibleScans.map((scan) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={scan.id}>
-              <div className="library-card-media">
-                <img src={scan.image} alt="" loading="lazy" />
-              </div>
+              {scan.previewUrl ? (
+                <Suspense fallback={<div className="library-card-media"><PreviewPlaceholder label="Loading 3D preview" /></div>}>
+                  <ModelPreview src={scan.previewUrl} format={scan.previewFormat} name={scan.name} />
+                </Suspense>
+              ) : (
+                <div className="library-card-media">
+                  <PreviewPlaceholder label="3D preview pending" />
+                </div>
+              )}
               <div className="library-card-details">
                 <div className="library-card-title-row">
                   <input
