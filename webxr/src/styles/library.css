@@ -7,7 +7,7 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-header-actions { display: flex; align-items: center; justify-self: end; gap: 8px; pointer-events: auto; }
 .library-new-scan { font-family: "Mirage", sans-serif; }
 .library-new-scan svg { width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 2; }
-.library-logout { gap: 8px; font-size: 15px; text-decoration: none; }
+.library-filter-pill.library-logout { gap: 8px; font-size: 15px; text-decoration: none; }
 .library-logout svg { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .library-page-heading { width: min(calc(100% - 32px), 1600px); margin: 124px auto 18px; }
 .library-page-heading-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
