@@ -52,9 +52,9 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-source-detail, .library-time-detail { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .library-source-detail svg, .library-time-detail svg { width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 .library-quality-tag { padding: 4px 8px; border-radius: 999px; background: var(--app-color-surface-bg-high); color: #fff; font-size: 11px; white-space: nowrap; }
-.library-model-row { justify-content: flex-start; color: #fff; }
-.library-format-list { display: flex; flex-wrap: wrap; gap: 5px; }
-.library-format-list span { padding: 3px 7px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 6px; color: #fff; font-size: 10px; line-height: 1.2; }
+.library-model-row { justify-content: flex-end; color: #fff; }
+.library-format-list { display: flex; width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.library-format-list span { padding: 4px 9px; border: 1px solid var(--app-color-primary-border-muted); border-radius: 7px; color: #fff; font-size: 12px; line-height: 1.2; }
 @media (max-width: 760px) {
   .library-page-heading { margin-top: 116px; }
   .library-sort-card { margin-left: auto; }
