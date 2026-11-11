@@ -50,7 +50,12 @@ export default function LibraryPage() {
               </svg>
               New Scan
             </a>
-            <a className="library-logout" href="/login">Log out</a>
+            <a className="library-logout" href="/login">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9" />
+              </svg>
+              Logout
+            </a>
           </div>
         </div>
       </header>
