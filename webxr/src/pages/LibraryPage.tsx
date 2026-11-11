@@ -1,7 +1,12 @@
+import { useState } from 'react'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
+const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
+
 export default function LibraryPage() {
+  const [activeFilter, setActiveFilter] = useState<(typeof libraryFilters)[number]>('All')
+
   return (
     <main className="library-shell">
       <header className="library-header">
@@ -59,6 +64,19 @@ export default function LibraryPage() {
               Search your library
             </label>
           </span>
+        </div>
+        <div className="library-filter-list" role="group" aria-label="Filter library by category">
+          {libraryFilters.map((filter) => (
+            <button
+              key={filter}
+              className={`library-filter-pill${activeFilter === filter ? ' is-active' : ''}`}
+              type="button"
+              aria-pressed={activeFilter === filter}
+              onClick={() => setActiveFilter(filter)}
+            >
+              {filter}
+            </button>
+          ))}
         </div>
       </section>
     </main>
