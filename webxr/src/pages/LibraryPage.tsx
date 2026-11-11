@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import cycloneWordmark from '../assets/cyclone-wordmark.png'
 import icebergPreview from '../assets/arctic-iceberg-scan.webp'
 import '../styles/library.css'
 import '../styles/components/input.css'
@@ -21,7 +22,9 @@ export default function LibraryPage() {
     <main className="library-shell">
       <header className="library-header">
         <div className="library-header-inner">
-          <div aria-hidden="true" />
+          <a className="library-brand" href="/library" aria-label="Cyclone library">
+            <img src={cycloneWordmark} alt="Cyclone" />
+          </a>
           <div className="ui-header-nav border-surface backdrop-blur-surface relative flex h-17 items-center gap-1 overflow-hidden rounded-3xl border-2 p-1 lg:h-15 lg:rounded-[1.375rem] pointer-events-auto">
             <div className="translucent-glass" />
             <a
