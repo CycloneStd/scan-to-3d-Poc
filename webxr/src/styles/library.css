@@ -1,6 +1,6 @@
 body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-shell { min-height: 100svh; }
-.library-header { position: fixed; z-index: 30; top: 0; left: 0; width: 100%; pointer-events: none; }
+.library-header { position: absolute; z-index: 30; top: 0; left: 0; width: 100%; pointer-events: none; }
 .library-header-inner { display: grid; width: min(calc(100% - 32px), 1376px); grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; margin: 0 auto; padding: 16px 0; }
 .library-header-inner > a { justify-self: end; pointer-events: auto; }
 .library-new-scan { font-family: "Mirage", sans-serif; }
