@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react'
 import cycloneWordmark from '../assets/cyclone-wordmark.png'
+import cycloneMark from '../assets/cyclone-mark.png'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
@@ -29,13 +30,10 @@ const initialScans: ScanCard[] = [
   { id: 6, name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
 ]
 
-function PreviewPlaceholder({ label }: { label: string }) {
+function PreviewPlaceholder() {
   return (
     <div className="library-preview-placeholder" aria-hidden="true">
-      <svg viewBox="0 0 48 48">
-        <path d="m24 4 18 10v20L24 44 6 34V14zM6 14l18 10 18-10M24 24v20M15 9l18 10v11L15 19z" />
-      </svg>
-      <span>{label}</span>
+      <img src={cycloneMark} alt="" />
     </div>
   )
 }
@@ -175,12 +173,12 @@ export default function LibraryPage() {
           {visibleScans.map((scan) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={scan.id}>
               {scan.previewUrl ? (
-                <Suspense fallback={<div className="library-card-media"><PreviewPlaceholder label="Loading 3D preview" /></div>}>
+                <Suspense fallback={<div className="library-card-media"><PreviewPlaceholder /></div>}>
                   <ModelPreview src={scan.previewUrl} format={scan.previewFormat} name={scan.name} />
                 </Suspense>
               ) : (
                 <div className="library-card-media">
-                  <PreviewPlaceholder label="3D preview pending" />
+                  <PreviewPlaceholder />
                 </div>
               )}
               <div className="library-card-details">

@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import type { SparkRenderer as SparkRendererType, SplatMesh as SplatMeshType } from '@sparkjsdev/spark'
+import cycloneMark from '../../assets/cyclone-mark.png'
 
 export type ModelPreviewFormat = 'ply' | 'glb' | 'obj'
 
@@ -116,10 +117,7 @@ export default function ModelPreview({ src, format = 'ply', name }: ModelPreview
     <div className="library-card-media" aria-label={`3D preview for ${name}`}>
       {!src || error ? (
         <div className="library-preview-placeholder" aria-hidden="true">
-          <svg viewBox="0 0 48 48">
-            <path d="m24 4 18 10v20L24 44 6 34V14zM6 14l18 10 18-10M24 24v20M15 9l18 10v11L15 19z" />
-          </svg>
-          <span>{error ? 'Preview unavailable' : '3D preview pending'}</span>
+          <img src={cycloneMark} alt="" />
         </div>
       ) : null}
       <div className="library-preview-canvas" ref={hostRef} />
