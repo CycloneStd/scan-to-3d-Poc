@@ -9,14 +9,15 @@ from pathlib import Path
 import yaml
 
 from .config import load_config,apply_overrides
+from .deliver import deliver
 from .logging_setup import setup_logging
 from .pipeline import Context, execute
-from .package import build_package
 from .project import Manifest, RunDir
 from .stages import ORDER, REGISTRY, TRACKS
 from .system import doctor as doctor_mod
 
 RUNS = Path("runs")
+DELIVERABLES = Path("deliverables")
 
 
 def _new_run(cfg: dict, run_id: str | None, prefix: str | None = None) -> RunDir:
@@ -104,9 +105,13 @@ def cmd_report(args):
     print(f"Wrote {root / 'report.md'}")
 
 
-def cmd_package(args):
-    out = build_package(RUNS / args.run_id, Path(args.out))
-    print(f"Packaged handoff folder: {out}")
+def cmd_deliver(args):
+    run_dir = RUNS / args.run_id
+    out = Path(args.out) if args.out else DELIVERABLES / (args.name or args.run_id)
+    cmd_report(argparse.Namespace(run_id=args.run_id))
+    manifest = deliver(run_dir, out)
+    print(f"\nDeliverable: {out}")
+    print("Not included:", manifest["not_included"] or "nothing missing")
 
 
 def main(argv=None):
@@ -143,10 +148,11 @@ def main(argv=None):
     rep.add_argument("--run-id", required=True)
     rep.set_defaults(fn=cmd_report)
 
-    pkg = sub.add_parser("package", help="build a handoff folder from a completed splat run")
-    pkg.add_argument("--run-id", required=True)
-    pkg.add_argument("--out", required=True, help="destination handoff folder")
-    pkg.set_defaults(fn=cmd_package)
+    dv = sub.add_parser("deliver", help="build the clean handoff folder deliverables/<name>/")
+    dv.add_argument("--run-id", required=True)
+    dv.add_argument("--name", help="folder name (default: the run id)")
+    dv.add_argument("--out", help="full output path (overrides --name)")
+    dv.set_defaults(fn=cmd_deliver)
 
     args = p.parse_args(argv)
     args.fn(args)

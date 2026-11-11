@@ -34,7 +34,7 @@ See `docs/limitations.md`. A 125-photo dense run used about 80 minutes of T4 tim
 - Mesh track (editable, AR): `scan3d run --config configs/<name>.yaml` (ingest, validate, features, sparse, undistort, dense on Colab, mesh, export, AR export)
 - Splat track (web viewer): `scan3d run --config configs/<name>.yaml --track splat`
 - Recommended splat settings are in `configs/house.yaml` (768 px images, scaled schedule, 4 upload workers).
-- Handoff folder for the web team: `scan3d package --run-id <id> --out deliverables/<name>`
+- Handoff folder: `scan3d deliver --run-id <id> --name <name>`
 
 ## Outputs
 - `runs/<id>/08_export/`: textured OBJ, GLB and renders (full-size mesh)
