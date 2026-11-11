@@ -1,9 +1,16 @@
 import { useState } from 'react'
+import icebergPreview from '../assets/arctic-iceberg-scan.webp'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
 const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
 type LibraryCategory = (typeof libraryFilters)[number]
+const libraryCardImages = [
+  icebergPreview,
+  ...[19845610, 3778080, 36297579, 29093113, 8516708].map(
+    (photoId) => `https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=720&q=80`,
+  ),
+]
 
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
@@ -106,8 +113,12 @@ export default function LibraryPage() {
 
       <section className="library-results" aria-label="Library cards">
         <div className="library-card-grid" aria-hidden="true">
-          {Array.from({ length: 6 }, (_, index) => (
-            <article className="library-item-card rounded-surface-md bg-surface-low" key={index} />
+          {libraryCardImages.map((image, index) => (
+            <article className="library-item-card rounded-surface-md bg-surface-low" key={index}>
+              <div className="library-card-media">
+                <img src={image} alt="" loading="lazy" />
+              </div>
+            </article>
           ))}
         </div>
       </section>
