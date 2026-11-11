@@ -37,18 +37,21 @@ export default function LibraryPage() {
               <span className="home-label">Library</span>
             </a>
           </div>
-          <a
-            className="library-new-scan mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent login-action"
-            href="/scan"
-            data-mode="solid"
-            data-size="md"
-            data-variant="primary"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            New Scan
-          </a>
+          <div className="library-header-actions">
+            <a
+              className="library-new-scan mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent login-action"
+              href="/scan"
+              data-mode="solid"
+              data-size="md"
+              data-variant="primary"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              New Scan
+            </a>
+            <a className="library-logout" href="/login">Log out</a>
+          </div>
         </div>
       </header>
 
