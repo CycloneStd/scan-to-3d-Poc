@@ -82,7 +82,6 @@ export default function LibraryPage() {
           </div>
         </div>
         <label className="library-sort-card" htmlFor="library-sort">
-          <span className="library-sort-label">Sort by</span>
           <select
             id="library-sort"
             value={sortBy}
@@ -92,6 +91,9 @@ export default function LibraryPage() {
             <option value="name">Name</option>
             <option value="images">Most Images</option>
           </select>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m5 7.5 5 5 5-5" />
+          </svg>
         </label>
       </section>
     </main>
