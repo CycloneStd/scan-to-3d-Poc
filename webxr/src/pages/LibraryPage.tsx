@@ -1,45 +1,14 @@
 import { useState } from 'react'
-import icebergPreview from '../assets/arctic-iceberg-scan.webp'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
 const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
 type LibraryCategory = (typeof libraryFilters)[number]
-type LibraryItem = {
-  id: string
-  name: string
-  category: Exclude<LibraryCategory, 'All'>
-  images: number
-  createdAt: string
-  cover: 'object' | 'room' | 'building' | 'environment'
-  image?: string
-}
-
-const previewItems: LibraryItem[] = [
-  { id: 'vase', name: 'Stoneware Vase', category: 'Objects', images: 48, createdAt: '2026-11-11', cover: 'object' },
-  { id: 'lamp', name: 'Studio Lamp', category: 'Objects', images: 36, createdAt: '2026-11-10', cover: 'object' },
-  { id: 'reading-room', name: 'Reading Room', category: 'Rooms', images: 112, createdAt: '2026-11-08', cover: 'room' },
-  { id: 'living-space', name: 'Living Space', category: 'Rooms', images: 84, createdAt: '2026-11-06', cover: 'room' },
-  { id: 'workshop', name: 'Workshop Building', category: 'Buildings', images: 176, createdAt: '2026-11-03', cover: 'building' },
-  { id: 'iceberg', name: 'Arctic Iceberg', category: 'Environment', images: 94, createdAt: '2026-10-29', cover: 'environment', image: icebergPreview },
-]
 
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
   const [sortBy, setSortBy] = useState('recent')
   const [searchQuery, setSearchQuery] = useState('')
-
-  const visibleItems = previewItems
-    .filter((item) => activeFilter === 'All' || item.category === activeFilter)
-    .filter((item) => item.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    .sort((a, b) => {
-      if (sortBy === 'oldest') return a.createdAt.localeCompare(b.createdAt)
-      if (sortBy === 'name-asc') return a.name.localeCompare(b.name)
-      if (sortBy === 'name-desc') return b.name.localeCompare(a.name)
-      if (sortBy === 'images-desc') return b.images - a.images
-      if (sortBy === 'images-asc') return a.images - b.images
-      return b.createdAt.localeCompare(a.createdAt)
-    })
 
   return (
     <main className="library-shell">
@@ -135,43 +104,12 @@ export default function LibraryPage() {
         </label>
       </section>
 
-      <section className="library-results" aria-labelledby="library-results-title">
-        <header className="library-results-header">
-          <div>
-            <h1 id="library-results-title">Your library</h1>
-            <p>Sample scans to preview your library layout</p>
-          </div>
-          <span className="library-result-count">{visibleItems.length} items</span>
-        </header>
-        {visibleItems.length > 0 ? (
-          <div className="library-card-grid">
-            {visibleItems.map((item) => (
-              <article className="library-item-card rounded-surface-md bg-surface-low" key={item.id}>
-                <div className={`library-card-cover library-card-cover--${item.cover}`}>
-                  {item.image ? (
-                    <img src={item.image} alt="" />
-                  ) : (
-                    <svg className="library-card-artwork" viewBox="0 0 120 120" aria-hidden="true">
-                      <path d="m60 15 39 22v46l-39 22-39-22V37z" />
-                      <path d="m21 37 39 23 39-23M60 60v45M41 26l39 22v24L41 50z" />
-                    </svg>
-                  )}
-                  <span className="library-preview-badge">Preview</span>
-                  <span className="library-card-category">{item.category}</span>
-                </div>
-                <div className="library-card-details">
-                  <h2>{item.name}</h2>
-                  <div className="library-card-meta">
-                    <span>{item.images} images</span>
-                    <span>{new Date(`${item.createdAt}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="library-empty-state">No scans match this search and category.</p>
-        )}
+      <section className="library-results" aria-label="Library cards">
+        <div className="library-card-grid" aria-hidden="true">
+          {Array.from({ length: 6 }, (_, index) => (
+            <article className="library-item-card rounded-surface-md bg-surface-low" key={index} />
+          ))}
+        </div>
       </section>
     </main>
   )
