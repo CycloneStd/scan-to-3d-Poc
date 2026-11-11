@@ -22,9 +22,34 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-sort-card select { appearance: none; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .library-sort-card svg { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .library-sort-card:focus-within { outline: 2px solid var(--app-color-primary-border-muted); outline-offset: 2px; }
+.library-results { width: min(calc(100% - 32px), 1376px); margin: 44px auto 64px; }
+.library-results-header { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.library-results-header h1 { margin: 0; color: var(--app-color-surface-fg); font-family: "Mirage", sans-serif; font-size: 28px; font-weight: 600; letter-spacing: -.035em; }
+.library-results-header p { margin: 4px 0 0; color: var(--app-color-surface-fg-muted); font-size: 14px; }
+.library-result-count { padding-bottom: 4px; color: var(--app-color-surface-fg-muted); font-size: 13px; }
+.library-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.library-item-card { min-width: 0; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
+.library-card-cover { position: relative; display: flex; aspect-ratio: 1.55; align-items: center; justify-content: center; overflow: hidden; }
+.library-card-artwork { width: 78px; height: 78px; fill: #ffffff12; stroke: #f3ece0; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.25; opacity: .86; filter: drop-shadow(0 8px 14px #0005); transform: perspective(220px) rotateY(-12deg) rotateX(5deg); transition: transform 180ms ease; }
+.library-card-artwork path:last-child { fill: none; opacity: .7; }
+.library-item-card:hover .library-card-artwork { transform: perspective(220px) rotateY(-7deg) rotateX(2deg) scale(1.04); }
+.library-card-cover img { width: 100%; height: 100%; object-fit: cover; }
+.library-card-cover--object { background: linear-gradient(145deg, #c08e69, #58404d 62%, #262c40); }
+.library-card-cover--room { background: linear-gradient(145deg, #bd936b, #72505b 58%, #352e45); }
+.library-card-cover--building { background: linear-gradient(145deg, #b9a27c, #61706d 60%, #293c42); }
+.library-card-cover--environment { background: linear-gradient(145deg, #88aeb6, #264654 56%, #162d3b); }
+.library-preview-badge, .library-card-category { position: absolute; z-index: 2; top: 14px; padding: 6px 10px; border: 1px solid #ffffff40; border-radius: 999px; background: #11111155; color: #fff; font-size: 11px; line-height: 1; backdrop-filter: blur(10px); }
+.library-preview-badge { left: 14px; }
+.library-card-category { right: 14px; }
+.library-card-details { padding: 17px 20px 19px; }
+.library-card-details h2 { overflow: hidden; margin: 0; color: var(--app-color-surface-fg); font-family: "Mirage", sans-serif; font-size: 18px; font-weight: 550; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.library-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 9px; color: var(--app-color-surface-fg-muted); font-size: 12px; }
+.library-empty-state { margin: 0; padding: 32px; border-radius: var(--app-dimension-surface-radius-md); background: var(--app-color-surface-bg-low); color: var(--app-color-surface-fg-muted); text-align: center; }
 @media (max-width: 760px) {
   .library-toolbar { margin-top: 116px; }
   .library-sort-card { margin-left: auto; }
+  .library-results { margin-top: 34px; }
+  .library-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
   .library-header-inner { width: calc(100% - 24px); padding: 12px 0; }
@@ -33,4 +58,7 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
   .library-toolbar { width: calc(100% - 24px); margin-top: 108px; }
   .library-browse-controls { flex-basis: 100%; }
   .library-search-field { max-width: none; }
+  .library-results { width: calc(100% - 24px); margin-top: 28px; }
+  .library-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .library-card-cover { aspect-ratio: 1.65; }
 }
