@@ -24,7 +24,7 @@ remote:
   auth: null
 
 colmap:
-  binary: colmap
+  binary: ${COLMAP_BIN}
 
 features:
   camera_model: SIMPLE_RADIAL
@@ -36,5 +36,3 @@ splat:
   max_steps: 30000
   max_image_size: 768
   extra_args: ["--steps_scaler", "0.25"]
-
-  mkl

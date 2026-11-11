@@ -1,4 +1,5 @@
 from .dense import DenseStage
+from .ar import ArStage
 from .export import ExportStage
 from .features import FeaturesStage
 from .ingest import IngestStage
@@ -10,12 +11,12 @@ from .validate import ValidateStage
 
 REGISTRY = {s.name: s for s in (
     IngestStage(), ValidateStage(), FeaturesStage(), SparseStage(),
-    UndistortStage(), DenseStage(), MeshStage(), ExportStage(),SplatStage(),
+    UndistortStage(), DenseStage(), MeshStage(), ExportStage(), SplatStage(), ArStage(),
 )}
 
 ORDER = list(REGISTRY)
 
 TRACKS = {
-    "mesh": ["ingest", "validate", "features", "sparse", "undistort", "dense", "mesh", "export"],
+    "mesh": ["ingest", "validate", "features", "sparse", "undistort", "dense", "mesh", "export", "ar"],
     "splat": ["ingest", "validate", "features", "sparse", "undistort", "splat"],
 }

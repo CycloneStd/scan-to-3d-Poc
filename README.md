@@ -6,6 +6,7 @@ Photos (or video frames) to a textured 3D mesh that opens in Blender.
 - Linux, conda, ffmpeg, Blender 4+ (`blender` on PATH)
 - COLMAP >= 4.0 in its own conda env: `conda create -n colmap4 -c conda-forge colmap=4.2`
 - `export COLMAP_BIN=$HOME/anaconda3/envs/colmap4/bin/colmap`
+- In the config you run, set `colmap.binary: ${COLMAP_BIN}` so the pipeline uses that version rather than another `colmap` on `PATH`.
 - A Google Colab account with compute units and the `colab` CLI (`uv tool install google-colab-cli`); run `colab sessions` once to authorize
 
 ## Install
@@ -28,3 +29,18 @@ Stages are cached; rerun the same command with the same `--run-id` to resume.
 
 ## Notes
 See `docs/limitations.md`. A 125-photo dense run used about 80 minutes of T4 time.
+
+## Tracks
+- Mesh track (editable, AR): `scan3d run --config configs/<name>.yaml` (ingest, validate, features, sparse, undistort, dense on Colab, mesh, export, AR export)
+- Splat track (web viewer): `scan3d run --config configs/<name>.yaml --track splat`
+- Recommended splat settings are in `configs/house.yaml` (768 px images, scaled schedule, 4 upload workers).
+- Handoff folder for the web team: `scan3d package --run-id <id> --out deliverables/<name>`
+
+## Outputs
+- `runs/<id>/08_export/`: textured OBJ, GLB and renders (full-size mesh)
+- `runs/<id>/09_splat/`: `scene.spz`, `scene.compressed.ply`, `stats.json`
+- `runs/<id>/11_ar/`: AR-sized `model_ar.glb` and `model_ar.usdz`, `ar_report.json`
+- Every stage writes timing and metrics to `runs/<id>/manifest.json`; `scan3d report --run-id <id>` summarises them.
+
+## Real-world scale
+Set `ar.scale_factor` (real distance / model distance, measured once with Blender's Measure tool) and re-run the `ar` stage.
