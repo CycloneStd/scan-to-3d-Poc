@@ -38,20 +38,28 @@ export default function LibraryPage() {
       </header>
 
       <section className="library-toolbar" aria-label="Search your library">
-        <label className="library-search-field m-input relative box-border flex w-full flex-row items-center justify-between rounded-component-xl transition-all duration-100 ease-linear h-14 gap-1.5" data-size="lg" data-simple="true">
-          <span className="library-search-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <circle cx="10.8" cy="10.8" r="6.8" />
-              <path d="m16 16 5 5" />
-            </svg>
-          </span>
+        <div className="library-search-field m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl" data-size="lg">
+          <span
+            className="m-input__target"
+            aria-hidden="true"
+            onClick={() => document.getElementById('library-search')?.focus()}
+          />
           <span className="m-input__field">
             <span className="m-input__control">
-              <input id="library-search" className="mirror-input" type="search" placeholder=" " />
+              <input
+                id="library-search"
+                name="search"
+                className="mirror-input"
+                type="search"
+                placeholder="Search your library"
+                autoComplete="off"
+              />
             </span>
-            <span className="m-input__label">Search your library</span>
+            <label className="m-input__label" htmlFor="library-search">
+              Search your library
+            </label>
           </span>
-        </label>
+        </div>
       </section>
     </main>
   )
