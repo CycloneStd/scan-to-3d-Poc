@@ -1,7 +1,7 @@
 body.login-page { min-height: 100svh; margin: 0; }
 .login-shell { min-height: 100svh; box-sizing: border-box; display: grid; place-items: center; padding: 32px 20px; position: relative; isolation: isolate; overflow: hidden; }
 .signup-shell { overflow-x: hidden; overflow-y: auto; }
-.login-brand { position: absolute; z-index: 2; top: 40px; left: 48px; display: block; width: 148px; }
+.login-brand { position: absolute; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 30px); left: max(16px, calc((100vw - 96rem) / 2 + 16px)); display: block; width: 148px; }
 .login-brand img { display: block; width: 100%; height: auto; }
 .login-image-field { position: fixed; z-index: -1; inset: 0; overflow: hidden; pointer-events: none; }
 .login-image-card { position: absolute; width: clamp(112px, 14vw, 176px); aspect-ratio: 1.25; box-sizing: border-box; margin: 0; padding: 6px; overflow: hidden; border: 1px solid var(--app-color-surface-border); border-radius: var(--app-dimension-surface-radius-md, 1.25rem); background: var(--app-color-surface-bg-low); box-shadow: 0 14px 38px var(--app-color-surface-shadow); opacity: .82; }
@@ -30,13 +30,17 @@ body.login-page { min-height: 100svh; margin: 0; }
 .login-account-prompt a { color: var(--app-color-surface-fg-link); text-underline-offset: 3px; }
 .login-account-prompt a:hover { color: var(--app-color-surface-fg-link-hover); }
 @media (max-width: 760px) {
-  .login-brand { top: 32px; left: 36px; width: 124px; }
   .login-image-card.top-left-center, .login-image-card.top-right-center,
   .login-image-card.bottom-left-center, .login-image-card.bottom-right-center { display: none; }
   .login-image-card { width: clamp(96px, 20vw, 140px); opacity: .65; }
 }
 @media (max-width: 520px) {
   .login-image-field { display: none; }
-  .login-brand { top: 24px; left: 24px; width: 112px; }
   .login-content { width: min(100%, 400px); }
+}
+@media (max-width: 1023px) {
+  .login-brand { top: calc(env(safe-area-inset-top, 0px) + 38px); left: 34px; width: 148px; }
+}
+@media (max-width: 520px) {
+  .login-brand { left: 30px; width: 112px; }
 }

@@ -1,16 +1,19 @@
-import { lazy, Suspense, useState } from 'react'
-import cycloneWordmark from '../assets/cyclone-wordmark.png'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import cycloneMark from '../assets/cyclone-mark.png'
+import arcticIcebergImage from '../assets/arctic-iceberg-scan.webp'
+import AppHeader from '../components/library/AppHeader'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
 const ModelPreview = lazy(() => import('../components/library/ModelPreview'))
+const ResultsViewer = lazy(() => import('../components/library/ResultsViewer'))
 const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
 type LibraryCategory = (typeof libraryFilters)[number]
 type ScanStatus = 'Ready' | 'Processing'
 type ModelPreviewFormat = 'ply' | 'glb' | 'obj'
 type ScanCard = {
   id: number
+  modelKey: string
   name: string
   type: 'Object' | 'Room' | 'Building'
   date: string
@@ -19,21 +22,32 @@ type ScanCard = {
   previewFormat?: ModelPreviewFormat
   source: string
   sourceType: 'photos' | 'video'
+  sourceImages?: string[]
   processingTime: string
   quality: 'Fast' | 'Balanced' | 'High detail'
 }
 const initialScans: ScanCard[] = [
-  { id: 1, name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', processingTime: '4 min 12 s', quality: 'High detail' },
-  { id: 2, name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced' },
-  { id: 4, name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail' },
-  { id: 5, name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
-  { id: 6, name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
+  { id: 1, modelKey: 'mdl-7k4p2q9x', name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', sourceImages: [arcticIcebergImage], processingTime: '4 min 12 s', quality: 'High detail' },
+  { id: 2, modelKey: 'mdl-3f8n1v6c', name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced' },
+  { id: 4, modelKey: 'mdl-9d2h5w7k', name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail' },
+  { id: 5, modelKey: 'mdl-4q6t8a3m', name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
+  { id: 6, modelKey: 'mdl-8c1r5y2p', name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
 ]
+
+function getScanTimestamp(dateLabel: string) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  if (dateLabel === 'Today') return today.getTime()
+  if (dateLabel === 'Yesterday') return today.getTime() - 24 * 60 * 60 * 1000
+  const parsed = new Date(`${dateLabel}, ${today.getFullYear()}`)
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+}
 
 function PreviewPlaceholder() {
   return (
     <div className="library-preview-placeholder" aria-hidden="true">
       <img src={cycloneMark} alt="" />
+      <span>Preparing preview…</span>
     </div>
   )
 }
@@ -42,54 +56,67 @@ export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
   const [sortBy, setSortBy] = useState('recent')
   const [searchQuery, setSearchQuery] = useState('')
+  const [exportFormat, setExportFormat] = useState<'GLB' | 'OBJ' | 'PLY'>('GLB')
   const [scans, setScans] = useState(initialScans)
+  const [sourceImageIndex, setSourceImageIndex] = useState(0)
+  const [selectedScan, setSelectedScan] = useState<ScanCard | null>(() => {
+    const modelKey = window.location.pathname.split('/').filter(Boolean).at(-1)
+    return initialScans.find((scan) => scan.modelKey === modelKey) ?? null
+  })
+  const closeModalButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!selectedScan) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeModalButtonRef.current?.focus()
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeModelWindow()
+    }
+    const closeOnHistoryBack = () => setSelectedScan(null)
+    window.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('popstate', closeOnHistoryBack)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('popstate', closeOnHistoryBack)
+    }
+  }, [selectedScan])
+
+  useEffect(() => {
+    setSourceImageIndex(0)
+  }, [selectedScan?.id])
 
   const visibleScans = scans
     .filter((scan) => activeFilter === 'All' || scan.type === activeFilter.slice(0, -1))
     .filter((scan) => scan.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === 'oldest') return a.id - b.id
+      if (sortBy === 'oldest') return getScanTimestamp(a.date) - getScanTimestamp(b.date)
       if (sortBy === 'name-asc') return a.name.localeCompare(b.name)
       if (sortBy === 'name-desc') return b.name.localeCompare(a.name)
-      return b.id - a.id
+      return getScanTimestamp(b.date) - getScanTimestamp(a.date)
     })
 
   function renameScan(id: number, name: string) {
     setScans((items) => items.map((scan) => scan.id === id ? { ...scan, name } : scan))
   }
 
+  function openModelWindow(scan: ScanCard) {
+    window.history.pushState({ modelKey: scan.modelKey }, '', `/model/${scan.modelKey}`)
+    setSelectedScan(scan)
+  }
+
+  function closeModelWindow() {
+    if (window.location.pathname.startsWith('/model/')) {
+      window.history.replaceState(null, '', '/library')
+    }
+    setSelectedScan(null)
+  }
+
   return (
     <main className="library-shell">
-      <header className="library-header">
-        <div className="library-header-inner">
-          <a className="library-brand" href="/library" aria-label="Cyclone library">
-            <img src={cycloneWordmark} alt="Cyclone" />
-          </a>
-          <div className="ui-header-nav border-surface backdrop-blur-surface relative flex h-17 items-center gap-1 overflow-hidden rounded-3xl border-2 p-1 lg:h-15 lg:rounded-[1.375rem] pointer-events-auto">
-            <div className="translucent-glass" />
-            <a
-              href="/library"
-              aria-current="page"
-              className="m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent bg-primary-subtle text-primary-on-subtle hover:bg-primary-subtle data-[pressed=true]:bg-primary-subtle-hover mirror-button pointer-events-auto min-w-24"
-              data-blur="true"
-              data-icon="true"
-              data-mode="subtle"
-              data-size="md"
-              data-variant="primary"
-            >
-              <span className="home-label">Library</span>
-            </a>
-          </div>
-          <div className="library-header-actions">
-            <a className="library-logout library-filter-pill" href="/login">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9" />
-              </svg>
-              Logout
-            </a>
-          </div>
-        </div>
-      </header>
+      <AppHeader page="library" />
 
       <header className="library-page-heading">
         <div className="library-page-heading-inner">
@@ -172,15 +199,17 @@ export default function LibraryPage() {
         <div className="library-card-grid">
           {visibleScans.map((scan) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={scan.id}>
-              {scan.previewUrl ? (
-                <Suspense fallback={<div className="library-card-media"><PreviewPlaceholder /></div>}>
-                  <ModelPreview src={scan.previewUrl} format={scan.previewFormat} name={scan.name} />
-                </Suspense>
-              ) : (
-                <div className="library-card-media">
-                  <PreviewPlaceholder />
-                </div>
-              )}
+              <div className="library-card-preview">
+                {scan.previewUrl ? (
+                  <Suspense fallback={<div className="library-card-media"><PreviewPlaceholder /></div>}>
+                    <ModelPreview src={scan.previewUrl} format={scan.previewFormat} name={scan.name} />
+                  </Suspense>
+                ) : (
+                  <div className="library-card-media">
+                    <PreviewPlaceholder />
+                  </div>
+                )}
+              </div>
               <div className="library-card-details">
                 <div className="library-card-title-row">
                   <input
@@ -219,10 +248,97 @@ export default function LibraryPage() {
                   <span className="library-quality-tag">{scan.quality}</span>
                 </div>
               </div>
+              <button
+                className="library-card-link"
+                type="button"
+                aria-label={`Open 3D model for ${scan.name}`}
+                aria-haspopup="dialog"
+                onClick={() => openModelWindow(scan)}
+              />
             </article>
           ))}
         </div>
       </section>
+
+      {selectedScan && (
+        <div className="model-modal-backdrop" onClick={(event) => event.target === event.currentTarget && closeModelWindow()}>
+          <div className="model-modal-frame">
+            <section className="model-modal" id="model-preview-dialog" role="dialog" aria-modal="true" aria-label={`${selectedScan.name} model window`}>
+              <div className="model-modal-content">
+                <div className="model-modal-viewer">
+                  <Suspense fallback={<div className="model-modal-loading"><img src={cycloneMark} alt="" /></div>}>
+                    <ResultsViewer />
+                  </Suspense>
+                </div>
+                <aside className="model-modal-details-panel" aria-label="Model details">
+                  <div className="model-modal-details-scroll">
+                  <section className="model-detail-section">
+                    <div className="model-detail-heading-row">
+                      <h2>{selectedScan.name}</h2>
+                      <span className="model-detail-ready">Ready</span>
+                    </div>
+                    <dl className="model-detail-list">
+                      <div><dt>Type</dt><dd>Object</dd></div>
+                      <div><dt>Source</dt><dd>64 photos</dd></div>
+                      <div><dt>Captured</dt><dd>Today</dd></div>
+                      <div><dt>Processing time</dt><dd>4 min 12 s</dd></div>
+                    </dl>
+                  </section>
+
+                  {selectedScan.sourceType === 'photos' && (
+                    <section className="model-detail-section model-original-images">
+                      <h2>Resources</h2>
+                      {selectedScan.sourceImages?.length ? (
+                        <div className="model-original-image-viewer">
+                          <img src={selectedScan.sourceImages[sourceImageIndex]} alt={`${selectedScan.name} original capture ${sourceImageIndex + 1}`} />
+                          <button type="button" aria-label="Previous original image" disabled={selectedScan.sourceImages.length < 2} onClick={() => setSourceImageIndex((index) => (index - 1 + selectedScan.sourceImages!.length) % selectedScan.sourceImages!.length)}>
+                            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4.5-5.5 5.5 5.5 5.5" /></svg>
+                          </button>
+                          <span>{sourceImageIndex + 1} / {selectedScan.sourceImages.length}</span>
+                          <button type="button" aria-label="Next original image" disabled={selectedScan.sourceImages.length < 2} onClick={() => setSourceImageIndex((index) => (index + 1) % selectedScan.sourceImages!.length)}>
+                            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="model-original-image-empty">Original images will appear here</div>
+                      )}
+                    </section>
+                  )}
+
+                  <section className="model-detail-section">
+                    <h2>Model</h2>
+                    <dl className="model-detail-stats">
+                      <div><dt>Vertices</dt><dd>7,592</dd></div>
+                      <div><dt>Faces</dt><dd>14,400</dd></div>
+                      <div><dt>Texture</dt><dd>2048 px</dd></div>
+                      <div><dt>File size</dt><dd>6.8 MB</dd></div>
+                    </dl>
+                  </section>
+
+                  <section className="model-detail-section model-export-section">
+                    <h2>Export</h2>
+                    <div className="model-export-controls">
+                      <div className="model-export-select-wrap">
+                        <select aria-label="Export format" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as 'GLB' | 'OBJ' | 'PLY')}>
+                          <option value="GLB">GLB</option>
+                          <option value="OBJ">OBJ</option>
+                          <option value="PLY">PLY</option>
+                        </select>
+                        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+                      </div>
+                      <button type="button" className="model-export-button">Export</button>
+                    </div>
+                  </section>
+                  </div>
+                </aside>
+              </div>
+            </section>
+            <button ref={closeModalButtonRef} className="model-modal-close" type="button" aria-label="Close model preview" onClick={closeModelWindow}>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

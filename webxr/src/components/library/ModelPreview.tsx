@@ -25,9 +25,12 @@ function disposeObject(object: THREE.Object3D) {
 export default function ModelPreview({ src, format = 'ply', name }: ModelPreviewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     const host = hostRef.current
+    setError(false)
+    setLoaded(false)
     if (!host || !src) return
 
     let active = true
@@ -82,6 +85,7 @@ export default function ModelPreview({ src, format = 'ply', name }: ModelPreview
           splat = new SplatMesh({ url: src })
           scene.add(splat)
           await splat.initialized
+          if (!active) return
           camera.position.set(0, 0, 2.4)
         } else {
           const object = format === 'glb'
@@ -95,6 +99,7 @@ export default function ModelPreview({ src, format = 'ply', name }: ModelPreview
           scene.add(object)
           fitObject(object)
         }
+        if (active) setLoaded(true)
       } catch {
         if (active) setError(true)
       }
@@ -115,9 +120,10 @@ export default function ModelPreview({ src, format = 'ply', name }: ModelPreview
 
   return (
     <div className="library-card-media" aria-label={`3D preview for ${name}`}>
-      {!src || error ? (
-        <div className="library-preview-placeholder" aria-hidden="true">
+      {!loaded ? (
+        <div className="library-preview-placeholder" role={error ? 'status' : 'status'} aria-live="polite">
           <img src={cycloneMark} alt="" />
+          <span>{error ? 'Preview unavailable' : 'Preparing preview…'}</span>
         </div>
       ) : null}
       <div className="library-preview-canvas" ref={hostRef} />

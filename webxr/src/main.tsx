@@ -1,8 +1,10 @@
 async function renderRoute() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
-  if (pathname !== '/login' && pathname !== '/signup' && pathname !== '/library') return
+  const isModelPage = /^\/model\/[^/]+$/.test(pathname)
+  if (pathname !== '/login' && pathname !== '/signup' && pathname !== '/library' && !isModelPage) return
 
-  document.body.className = `${pathname === '/library' ? 'library-page' : 'login-page'} bg-surface-base text-surface`
+  const isLibraryPage = pathname === '/library' || isModelPage
+  document.body.className = `${isLibraryPage ? 'library-page' : 'login-page'} bg-surface-base text-surface`
   document.body.innerHTML = '<div id="app-root"></div>'
 
   const [{ StrictMode, createElement }, { createRoot }, pageModule] =
@@ -11,7 +13,7 @@ async function renderRoute() {
       import('react-dom/client'),
       pathname === '/signup'
         ? import('./pages/auth/SignupPage')
-        : pathname === '/library'
+        : isLibraryPage
           ? import('./pages/LibraryPage')
           : import('./pages/auth/LoginPage'),
     ])
