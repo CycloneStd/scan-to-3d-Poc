@@ -76,6 +76,7 @@ class ArStage(Stage):
             "up_agreement": round(coherence, 3),
             "cameras_used": camera_count,
             "oriented_size_x_y_z": info["size_x_y_z"],
+            "scale_factor": ar.get("scale_factor"),
             "scale": ("factor %s applied" % ar["scale_factor"]) if ar.get("scale_factor")
                      else "UNSCALED: arbitrary model units are exported as if they were metres",
         })
