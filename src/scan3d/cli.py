@@ -11,6 +11,7 @@ import yaml
 from .config import load_config,apply_overrides
 from .logging_setup import setup_logging
 from .pipeline import Context, execute
+from .package import build_package
 from .project import Manifest, RunDir
 from .stages import ORDER, REGISTRY, TRACKS
 from .system import doctor as doctor_mod
@@ -102,6 +103,12 @@ def cmd_report(args):
     (root / "report.md").write_text("\n".join(lines))
     print(f"Wrote {root / 'report.md'}")
 
+
+def cmd_package(args):
+    out = build_package(RUNS / args.run_id, Path(args.out))
+    print(f"Packaged handoff folder: {out}")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="scan3d")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -135,6 +142,11 @@ def main(argv=None):
     rep = sub.add_parser("report", help="write runs/<id>/report.md")
     rep.add_argument("--run-id", required=True)
     rep.set_defaults(fn=cmd_report)
+
+    pkg = sub.add_parser("package", help="build a handoff folder from a completed splat run")
+    pkg.add_argument("--run-id", required=True)
+    pkg.add_argument("--out", required=True, help="destination handoff folder")
+    pkg.set_defaults(fn=cmd_package)
 
     args = p.parse_args(argv)
     args.fn(args)
