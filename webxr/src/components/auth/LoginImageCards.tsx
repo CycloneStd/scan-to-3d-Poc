@@ -1,5 +1,4 @@
 const imageCards = [
-  { position: 'top-left', photoId: 19845610 },
   { position: 'top-left-center', photoId: 3778080 },
   { position: 'top-right-center', photoId: 36297579 },
   { position: 'top-right', photoId: 29093113 },

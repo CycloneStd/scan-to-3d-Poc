@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import LoginImageCards from '../../components/auth/LoginImageCards'
+import cycloneWordmark from '../../assets/cyclone-wordmark.png'
 import '../../styles/components/input.css'
 import '../../styles/login.css'
 
@@ -103,6 +104,9 @@ export default function LoginPage() {
   return (
     <main className="login-shell">
       <LoginImageCards />
+      <a className="login-brand" href="/login" aria-label="Cyclone login">
+        <img src={cycloneWordmark} alt="Cyclone" />
+      </a>
       <section className="login-content" aria-labelledby="login-title">
         <header className="login-heading">
           <h1 id="login-title">Welcome back</h1>
