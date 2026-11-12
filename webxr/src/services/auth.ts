@@ -12,6 +12,26 @@ export class ApiRequestError extends Error {
   }
 }
 
+export function apiUrl(path: string) {
+  return `${API_BASE}${path}`
+}
+
+export async function authenticatedFetch(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers)
+  let access = sessionStorage.getItem(ACCESS_KEY)
+  if (!access || Number(sessionStorage.getItem('webxr.expires') || 0) <= Date.now()) {
+    access = await refreshAccessToken()
+  }
+  headers.set('Authorization', `Bearer ${access}`)
+  let response = await fetch(apiUrl(path), { ...init, headers, credentials: 'omit' })
+  if (response.status === 401) {
+    access = await refreshAccessToken()
+    headers.set('Authorization', `Bearer ${access}`)
+    response = await fetch(apiUrl(path), { ...init, headers, credentials: 'omit' })
+  }
+  return response
+}
+
 async function request<T>(path: string, init: RequestInit = {}, authenticated = false): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Content-Type', 'application/json')
@@ -22,12 +42,9 @@ async function request<T>(path: string, init: RequestInit = {}, authenticated = 
     }
     headers.set('Authorization', `Bearer ${access}`)
   }
-  let response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'omit', redirect: 'error' })
-  if (response.status === 401 && authenticated) {
-    const access = await refreshAccessToken()
-    headers.set('Authorization', `Bearer ${access}`)
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'omit', redirect: 'error' })
-  }
+  const response = authenticated
+    ? await authenticatedFetch(path, { ...init, headers, redirect: 'error' })
+    : await fetch(apiUrl(path), { ...init, headers, credentials: 'omit', redirect: 'error' })
   if (!response.ok) {
     const error = await response.json().catch(() => ({})) as ApiError
     throw new ApiRequestError(error.detail || 'The request could not be completed.', response.status)

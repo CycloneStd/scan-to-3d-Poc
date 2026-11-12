@@ -1,45 +1,79 @@
-import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import cycloneMark from '../assets/cyclone-mark.webp'
-import arcticIcebergImage from '../assets/arctic-iceberg-scan.webp'
 import AppHeader from '../components/library/AppHeader'
+import { scansApi, type ScanArtifact, type ScanAsset, type ScanJob, type ScanRecord } from '../services/scans'
 import '../styles/library.css'
 import '../styles/components/input.css'
 
-const ModelPreview = lazy(() => import('../components/library/ModelPreview'))
 const ResultsViewer = lazy(() => import('../components/library/ResultsViewer'))
 const libraryFilters = ['All', 'Objects', 'Rooms', 'Buildings', 'Environment'] as const
 type LibraryCategory = (typeof libraryFilters)[number]
-type ScanStatus = 'Ready' | 'Processing'
-type ModelPreviewFormat = 'ply' | 'glb' | 'obj'
-type ScanCard = {
-  id: number
-  modelKey: string
-  name: string
-  type: 'Object' | 'Room' | 'Building'
-  date: string
-  status: ScanStatus
-  previewUrl?: string
-  previewFormat?: ModelPreviewFormat
-  source: string
-  sourceType: 'photos' | 'video'
-  sourceImages?: string[]
-  processingTime: string
-  quality: 'Fast' | 'Balanced' | 'High detail'
+type ScanCard = ScanRecord & { type: string; date: string; source: string; sourceType: 'photos' | 'video'; processingTime: string; quality: string }
+
+function toScanCard(scan: ScanRecord): ScanCard {
+  const images = scan.assets.filter((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/'))
+  const video = scan.assets.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('video/'))
+  const latestJob = scan.jobs[0]
+  const seconds = latestJob?.started_at && latestJob.finished_at
+    ? Math.max(0, Math.floor((Date.parse(latestJob.finished_at) - Date.parse(latestJob.started_at)) / 1000))
+    : null
+  return {
+    ...scan,
+    type: scan.subject_type,
+    date: new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(scan.created_at)),
+    source: video ? `Video · ${video.filename}` : `${images.length} ${images.length === 1 ? 'photo' : 'photos'}`,
+    sourceType: video ? 'video' : 'photos',
+    processingTime: seconds === null ? '—' : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, '0')} s`,
+    quality: '—',
+  }
 }
-const initialScans: ScanCard[] = [
-  { id: 1, modelKey: 'mdl-7k4p2q9x', name: 'Arctic Iceberg', type: 'Building', date: 'Today', status: 'Ready', source: '64 photos', sourceType: 'photos', sourceImages: [arcticIcebergImage], processingTime: '4 min 12 s', quality: 'High detail' },
-  { id: 2, modelKey: 'mdl-3f8n1v6c', name: 'Sneaker Pair', type: 'Object', date: 'Yesterday', status: 'Processing', source: 'Video, 2:48', sourceType: 'video', processingTime: '2 min 36 s', quality: 'Balanced' },
-  { id: 4, modelKey: 'mdl-9d2h5w7k', name: 'Studio Building', type: 'Building', date: 'Nov 6', status: 'Ready', source: '128 photos', sourceType: 'photos', processingTime: '8 min 24 s', quality: 'High detail' },
-  { id: 5, modelKey: 'mdl-4q6t8a3m', name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
-  { id: 6, modelKey: 'mdl-8c1r5y2p', name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
-]
-function getScanTimestamp(dateLabel: string) {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  if (dateLabel === 'Today') return today.getTime()
-  if (dateLabel === 'Yesterday') return today.getTime() - 24 * 60 * 60 * 1000
-  const parsed = new Date(`${dateLabel}, ${today.getFullYear()}`)
-  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+
+function formatMetric(metrics: Record<string, unknown> | undefined, names: string[]) {
+  if (!metrics) return '—'
+  const wanted = new Set(names.map((name) => name.toLowerCase()))
+  const visit = (value: unknown): string | undefined => {
+    if (!value || typeof value !== 'object') return undefined
+    for (const [key, item] of Object.entries(value)) {
+      if (wanted.has(key.toLowerCase()) && (typeof item === 'number' || typeof item === 'string')) {
+        return Number.isFinite(Number(item)) ? Number(item).toLocaleString() : String(item)
+      }
+    }
+    for (const item of Object.values(value)) {
+      const found = visit(item)
+      if (found) return found
+    }
+    return undefined
+  }
+  return visit(metrics) ?? '—'
+}
+
+function formatBytes(bytes: number | undefined) {
+  if (!bytes || bytes < 0) return '—'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fileExtension(filename: string) {
+  return filename.split('.').pop()?.toLowerCase() ?? ''
+}
+
+function resultArtifact(scan: ScanRecord): ScanArtifact | null {
+  const artifacts = scan.artifacts.filter((artifact) => ['glb', 'gltf', 'obj', 'ply', 'spz'].includes(fileExtension(artifact.filename)))
+  const priority = ['glb', 'obj', 'ply', 'spz', 'gltf']
+  return artifacts.sort((a, b) => priority.indexOf(fileExtension(a.filename)) - priority.indexOf(fileExtension(b.filename)))[0] ?? null
+}
+
+function fileKind(file: File): 'photos' | 'video' | null {
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const imageExtensions = ['jpg', 'jpeg', 'png']
+  const videoExtensions = ['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm']
+  if (imageExtensions.includes(extension ?? '') && (!file.type || file.type === 'image/jpeg' || file.type === 'image/png')) return 'photos'
+  if (videoExtensions.includes(extension ?? '') && (!file.type || file.type.startsWith('video/'))) return 'video'
+  return null
+}
+
+function formatStatus(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 function PreviewPlaceholder() {
@@ -51,63 +85,68 @@ function PreviewPlaceholder() {
   )
 }
 
+function SourceAssetImage({ asset, name, index }: { asset: ScanAsset; name: string; index: number }) {
+  const [src, setSrc] = useState<string>()
+  useEffect(() => {
+    let active = true
+    let objectUrl: string | undefined
+    void scansApi.sourceAsset(asset.id).then((blob) => {
+      objectUrl = URL.createObjectURL(blob)
+      if (active) setSrc(objectUrl)
+      else URL.revokeObjectURL(objectUrl)
+    }).catch((error: unknown) => console.error('Source image could not be loaded.', error))
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [asset.id])
+  return <img src={src} alt={`${name} original capture ${index + 1}`} />
+}
+
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
   const [sortBy, setSortBy] = useState('recent')
   const [searchQuery, setSearchQuery] = useState('')
   const [exportFormat, setExportFormat] = useState<'GLB' | 'OBJ' | 'PLY'>('GLB')
-  const [scans, setScans] = useState(initialScans)
+  const [scans, setScans] = useState<ScanCard[]>([])
   const [scanFiles, setScanFiles] = useState<File[]>([])
   const [uploadError, setUploadError] = useState('')
   const [scanProgress, setScanProgress] = useState<number | null>(null)
-  const [pendingScanDetails, setPendingScanDetails] = useState<{ name: string; type: ScanCard['type'] } | null>(null)
   const [scanType, setScanType] = useState('')
   const [isScanDrawerOpen, setIsScanDrawerOpen] = useState(() => window.location.pathname === '/scan')
   const [sourceImageIndex, setSourceImageIndex] = useState(0)
-  const [selectedScan, setSelectedScan] = useState<ScanCard | null>(() => {
-    const modelKey = window.location.pathname.split('/').filter(Boolean).at(-1)
-    return initialScans.find((scan) => scan.modelKey === modelKey) ?? null
-  })
+  const [selectedScan, setSelectedScan] = useState<ScanCard | null>(null)
   const closeModalButtonRef = useRef<HTMLButtonElement>(null)
   const closeScanDrawerButtonRef = useRef<HTMLButtonElement>(null)
   const scanFileInputRef = useRef<HTMLInputElement>(null)
-  const uploadKind = scanFiles[0]?.type.startsWith('video/') ? 'video' : scanFiles.length ? 'photos' : null
-  useEffect(() => {
-    if (window.location.pathname === '/scan') window.history.replaceState(null, '', '/library')
+  const uploadKind = scanFiles.length ? fileKind(scanFiles[0]) : null
+  const refreshScans = useCallback(async () => {
+    const records = (await scansApi.list()).map(toScanCard)
+    setScans(records)
+    setSelectedScan((current) => current ? records.find((scan) => scan.id === current.id) ?? current : current)
+    return records
   }, [])
 
   useEffect(() => {
-    if (scanProgress === null || scanProgress >= 100) return
-    const timer = window.setInterval(() => setScanProgress((progress) => progress === null ? null : Math.min(100, progress + 1)), 300)
+    void refreshScans().catch((error: unknown) => console.error('The scan library could not be loaded.', error))
+  }, [refreshScans])
+
+  const hasActiveScans = scans.some((scan) => scan.status === 'queued' || scan.status === 'processing')
+  useEffect(() => {
+    if (!hasActiveScans) return
+    const timer = window.setInterval(() => { void refreshScans().catch((error: unknown) => console.error('Scan statuses could not be refreshed.', error)) }, 5000)
     return () => window.clearInterval(timer)
-  }, [scanProgress === null || scanProgress >= 100])
+  }, [hasActiveScans, refreshScans])
 
   useEffect(() => {
-    if (scanProgress !== 100) return
-    const modelKey = `mdl-${Date.now().toString(36)}`
-    const uploadedVideo = scanFiles.find((file) => file.type.startsWith('video/'))
-    const result: ScanCard = {
-      id: Date.now(),
-      modelKey,
-      name: pendingScanDetails?.name || 'New scan',
-      type: pendingScanDetails?.type || 'Object',
-      date: 'Today',
-      status: 'Ready',
-      source: uploadedVideo ? `Video · ${uploadedVideo.name}` : `${scanFiles.length} photos`,
-      sourceType: uploadedVideo ? 'video' : 'photos',
-      processingTime: 'Just now',
-      quality: 'Balanced',
-    }
-    setScans((items) => [result, ...items])
-    setIsScanDrawerOpen(false)
-    window.history.replaceState({ modelKey }, '', `/model/${modelKey}`)
-    setSelectedScan(result)
-    setScanProgress(null)
-  }, [scanProgress])
+    if (!window.location.pathname.startsWith('/model/')) return
+    const scanId = window.location.pathname.split('/').filter(Boolean).at(-1)
+    const scan = scans.find((item) => item.id === scanId)
+    if (scan) setSelectedScan(scan)
+  }, [scans])
 
   useEffect(() => {
     if (!selectedScan && !isScanDrawerOpen) return
-
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     if (selectedScan) closeModalButtonRef.current?.focus()
@@ -131,40 +170,59 @@ export default function LibraryPage() {
     }
   }, [selectedScan, isScanDrawerOpen])
 
-  useEffect(() => {
-    setSourceImageIndex(0)
-  }, [selectedScan?.id])
+  useEffect(() => setSourceImageIndex(0), [selectedScan?.id])
 
   const visibleScans = scans
-    .filter((scan) => activeFilter === 'All' || scan.type === activeFilter.slice(0, -1))
+    .filter((scan) => activeFilter === 'All' || scan.type === ({ Objects: 'Object', Rooms: 'Room', Buildings: 'Building', Environment: 'Environment' } as const)[activeFilter])
     .filter((scan) => scan.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === 'oldest') return getScanTimestamp(a.date) - getScanTimestamp(b.date)
+      if (sortBy === 'oldest') return Date.parse(a.created_at) - Date.parse(b.created_at)
       if (sortBy === 'name-asc') return a.name.localeCompare(b.name)
       if (sortBy === 'name-desc') return b.name.localeCompare(a.name)
-      return getScanTimestamp(b.date) - getScanTimestamp(a.date)
+      if (sortBy === 'images-desc') return b.assets.filter((asset) => asset.content_type.startsWith('image/')).length - a.assets.filter((asset) => asset.content_type.startsWith('image/')).length
+      if (sortBy === 'images-asc') return a.assets.filter((asset) => asset.content_type.startsWith('image/')).length - b.assets.filter((asset) => asset.content_type.startsWith('image/')).length
+      return Date.parse(b.created_at) - Date.parse(a.created_at)
     })
 
-  function renameScan(id: number, name: string) {
+  const selectedJob: ScanJob | undefined = selectedScan?.jobs[0]
+  const selectedArtifact = selectedScan ? resultArtifact(selectedScan) : null
+  const selectedImages = selectedScan?.assets.filter((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/')) ?? []
+  const selectedExports = selectedScan?.artifacts.filter((artifact) => ['glb', 'obj', 'ply'].includes(fileExtension(artifact.filename))) ?? []
+  const selectedExport = selectedExports.find((artifact) => fileExtension(artifact.filename).toUpperCase() === exportFormat)
+
+  useEffect(() => {
+    const preferred = selectedExports.find((artifact) => fileExtension(artifact.filename).toUpperCase() === exportFormat)
+    if (!preferred && selectedExports[0]) setExportFormat(fileExtension(selectedExports[0].filename).toUpperCase() as 'GLB' | 'OBJ' | 'PLY')
+  }, [selectedScan?.id, selectedExports.map((artifact) => artifact.id).join(',')])
+
+  function renameScan(id: string, name: string) {
     setScans((items) => items.map((scan) => scan.id === id ? { ...scan, name } : scan))
   }
 
+  async function saveScanName(scan: ScanCard) {
+    const name = scan.name.trim()
+    if (!name || scan.status === 'queued' || scan.status === 'processing') return
+    try {
+      await scansApi.update(scan.id, { name, subject_type: scan.subject_type, subject: scan.subject, description: scan.description })
+      await refreshScans()
+    } catch (error) {
+      console.error('The scan name could not be saved.', error)
+      await refreshScans().catch(() => undefined)
+    }
+  }
+
   function openModelWindow(scan: ScanCard) {
-    window.history.pushState({ modelKey: scan.modelKey }, '', `/model/${scan.modelKey}`)
+    window.history.pushState({ scanId: scan.id }, '', `/model/${scan.id}`)
     setSelectedScan(scan)
   }
 
   function closeModelWindow() {
-    if (window.location.pathname.startsWith('/model/')) {
-      window.history.replaceState(null, '', '/library')
-    }
+    if (window.location.pathname.startsWith('/model/')) window.history.replaceState(null, '', '/library')
     setSelectedScan(null)
   }
 
   function closeScanDrawer() {
-    if (window.location.pathname === '/scan') {
-      window.history.replaceState(null, '', '/library')
-    }
+    if (window.location.pathname === '/scan') window.history.replaceState(null, '', '/library')
     setIsScanDrawerOpen(false)
   }
 
@@ -175,22 +233,85 @@ export default function LibraryPage() {
   }
 
   function addScanFiles(files: File[]) {
-    const kind = files[0]?.type.startsWith('video/') ? 'video' : 'photos'
-    const validFiles = files.filter((file) => kind === 'video' ? file.type.startsWith('video/') : ['image/jpeg', 'image/png'].includes(file.type))
-    if (validFiles.length !== files.length) {
-      setUploadError('Use JPEG or PNG photos, or choose a video. Other image formats are not supported by the pipeline.')
+    const kinds = files.map(fileKind)
+    if (!files.length || kinds.some((kind) => kind === null)) {
+      setUploadError('Use JPEG or PNG photos, or choose a supported video.')
+      return
+    }
+    const kind = kinds[0]!
+    if (kinds.some((item) => item !== kind)) {
+      setUploadError('Photos and video must be uploaded in separate scans. Remove the current files to switch input type.')
       return
     }
     if (scanFiles.length && uploadKind !== kind) {
       setUploadError('Photos and video must be uploaded in separate scans. Remove the current files to switch input type.')
       return
     }
-    if (kind === 'video' && (scanFiles.length || validFiles.length > 1)) {
+    if (kind === 'video' && (scanFiles.length || files.length > 1)) {
       setUploadError('Choose one video per scan. Remove the current files before choosing another video.')
       return
     }
     setUploadError('')
-    setScanFiles((current) => [...current, ...validFiles])
+    setScanFiles((current) => [...current, ...files])
+  }
+
+  async function submitScan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!scanFiles.length) {
+      setUploadError('Choose at least one photo or one video before starting the scan.')
+      return
+    }
+    setScanProgress(0)
+    setUploadError('')
+    let scanId: string | undefined
+    let jobAccepted = false
+    try {
+      const form = new FormData(event.currentTarget)
+      const scan = await scansApi.create({
+        name: String(form.get('name') ?? ''),
+        subject_type: String(form.get('type') || 'Object'),
+        subject: String(form.get('object') ?? '').trim() || null,
+        description: String(form.get('description') ?? '').trim() || null,
+      })
+      scanId = scan.id
+      for (const file of scanFiles) await scansApi.upload(scan.id, file)
+      let job = await scansApi.start(scan.id)
+      jobAccepted = true
+      while (job.status === 'queued' || job.status === 'running') {
+        setScanProgress(job.progress)
+        await new Promise((resolve) => window.setTimeout(resolve, 3000))
+        job = await scansApi.job(job.id)
+      }
+      if (job.status !== 'succeeded') throw new Error(job.error_message || 'The scan job failed.')
+      setScanProgress(100)
+      const [details] = await Promise.all([scansApi.get(scan.id), refreshScans()])
+      const result = toScanCard(details)
+      setIsScanDrawerOpen(false)
+      setScanFiles([])
+      setScanType('')
+      window.history.replaceState({ scanId: scan.id }, '', `/model/${scan.id}`)
+      setSelectedScan(result)
+    } catch (error) {
+      if (scanId && !jobAccepted) await scansApi.remove(scanId).catch(() => undefined)
+      if (jobAccepted) await refreshScans().catch(() => undefined)
+      setUploadError(error instanceof Error ? error.message : 'The scan could not be completed.')
+    } finally {
+      setScanProgress(null)
+    }
+  }
+
+  async function exportArtifact(artifact: ScanArtifact | undefined) {
+    if (!artifact) return
+    try {
+      const url = URL.createObjectURL(await scansApi.artifact(artifact.id))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = artifact.filename
+      anchor.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (error) {
+      console.error('The scan result could not be downloaded.', error)
+    }
   }
 
   return (
@@ -280,15 +401,9 @@ export default function LibraryPage() {
           {visibleScans.map((scan) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={scan.id}>
               <div className="library-card-preview">
-                {scan.previewUrl ? (
-                  <Suspense fallback={<div className="library-card-media"><PreviewPlaceholder /></div>}>
-                    <ModelPreview src={scan.previewUrl} format={scan.previewFormat} name={scan.name} />
-                  </Suspense>
-                ) : (
-                  <div className="library-card-media">
-                    <PreviewPlaceholder />
-                  </div>
-                )}
+                <div className="library-card-media">
+                  <PreviewPlaceholder />
+                </div>
               </div>
               <div className="library-card-details">
                 <div className="library-card-title-row">
@@ -296,11 +411,12 @@ export default function LibraryPage() {
                     aria-label={`Rename ${scan.name}`}
                     value={scan.name}
                     onChange={(event) => renameScan(scan.id, event.target.value)}
+                    onBlur={() => { void saveScanName(scan) }}
                   />
                   <span className="library-card-date">{scan.date}</span>
-                  {scan.status === 'Processing' && (
+                  {scan.status !== 'ready' && scan.status !== 'draft' && (
                     <span className={`library-status library-status-${scan.status.toLowerCase()}`}>
-                      {scan.status}
+                      {formatStatus(scan.status)}
                     </span>
                   )}
                 </div>
@@ -347,7 +463,7 @@ export default function LibraryPage() {
               <div className="model-modal-content">
                 <div className="model-modal-viewer">
                   <Suspense fallback={<div className="model-modal-loading"><img src={cycloneMark} alt="" /></div>}>
-                    <ResultsViewer />
+                    <ResultsViewer artifact={selectedArtifact} />
                   </Suspense>
                 </div>
                 <aside className="model-modal-details-panel" aria-label="Model details">
@@ -355,7 +471,7 @@ export default function LibraryPage() {
                   <section className="model-detail-section">
                     <div className="model-detail-heading-row">
                       <h2>{selectedScan.name}</h2>
-                      <span className="model-detail-ready">Ready</span>
+                      <span className="model-detail-ready">{formatStatus(selectedScan.status)}</span>
                     </div>
                     <dl className="model-detail-list">
                       <div><dt>Type</dt><dd>{selectedScan.type}</dd></div>
@@ -368,14 +484,14 @@ export default function LibraryPage() {
                   {selectedScan.sourceType === 'photos' && (
                     <section className="model-detail-section model-original-images">
                       <h2>Resources</h2>
-                      {selectedScan.sourceImages?.length ? (
+                      {selectedImages.length ? (
                         <div className="model-original-image-viewer">
-                          <img src={selectedScan.sourceImages[sourceImageIndex]} alt={`${selectedScan.name} original capture ${sourceImageIndex + 1}`} />
-                          <button type="button" aria-label="Previous original image" disabled={selectedScan.sourceImages.length < 2} onClick={() => setSourceImageIndex((index) => (index - 1 + selectedScan.sourceImages!.length) % selectedScan.sourceImages!.length)}>
+                          <SourceAssetImage asset={selectedImages[sourceImageIndex]} name={selectedScan.name} index={sourceImageIndex} />
+                          <button type="button" aria-label="Previous original image" disabled={selectedImages.length < 2} onClick={() => setSourceImageIndex((index) => (index - 1 + selectedImages.length) % selectedImages.length)}>
                             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4.5-5.5 5.5 5.5 5.5" /></svg>
                           </button>
-                          <span>{sourceImageIndex + 1} / {selectedScan.sourceImages.length}</span>
-                          <button type="button" aria-label="Next original image" disabled={selectedScan.sourceImages.length < 2} onClick={() => setSourceImageIndex((index) => (index + 1) % selectedScan.sourceImages!.length)}>
+                          <span>{sourceImageIndex + 1} / {selectedImages.length}</span>
+                          <button type="button" aria-label="Next original image" disabled={selectedImages.length < 2} onClick={() => setSourceImageIndex((index) => (index + 1) % selectedImages.length)}>
                             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
                           </button>
                         </div>
@@ -388,10 +504,10 @@ export default function LibraryPage() {
                   <section className="model-detail-section">
                     <h2>Model</h2>
                     <dl className="model-detail-stats">
-                      <div><dt>Vertices</dt><dd>7,592</dd></div>
-                      <div><dt>Faces</dt><dd>14,400</dd></div>
-                      <div><dt>Texture</dt><dd>2048 px</dd></div>
-                      <div><dt>File size</dt><dd>6.8 MB</dd></div>
+                      <div><dt>Vertices</dt><dd>{formatMetric(selectedJob?.metrics, ['vertices', 'vertex_count', 'num_vertices'])}</dd></div>
+                      <div><dt>Faces</dt><dd>{formatMetric(selectedJob?.metrics, ['faces', 'face_count', 'triangles', 'triangle_count'])}</dd></div>
+                      <div><dt>Texture</dt><dd>{formatMetric(selectedJob?.metrics, ['texture_resolution', 'texture_size', 'texture_pixels'])}</dd></div>
+                      <div><dt>File size</dt><dd>{formatBytes(selectedArtifact?.size_bytes)}</dd></div>
                     </dl>
                   </section>
 
@@ -400,13 +516,13 @@ export default function LibraryPage() {
                     <div className="model-export-controls">
                       <div className="model-export-select-wrap">
                         <select aria-label="Export format" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as 'GLB' | 'OBJ' | 'PLY')}>
-                          <option value="GLB">GLB</option>
-                          <option value="OBJ">OBJ</option>
-                          <option value="PLY">PLY</option>
+                          <option value="GLB" disabled={!selectedExports.some((artifact) => fileExtension(artifact.filename) === 'glb')}>GLB</option>
+                          <option value="OBJ" disabled={!selectedExports.some((artifact) => fileExtension(artifact.filename) === 'obj')}>OBJ</option>
+                          <option value="PLY" disabled={!selectedExports.some((artifact) => fileExtension(artifact.filename) === 'ply')}>PLY</option>
                         </select>
                         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
                       </div>
-                      <button type="button" className="model-export-button">Export</button>
+                      <button type="button" className="model-export-button" disabled={!selectedExport} onClick={() => { void exportArtifact(selectedExport) }}>Export</button>
                     </div>
                   </section>
                   </div>
@@ -431,7 +547,7 @@ export default function LibraryPage() {
               <div className="scan-drawer-header">
                 <h2 id="scan-drawer-title">New Scan</h2>
               </div>
-              <form className="scan-drawer-form" aria-busy={scanProgress !== null} onSubmit={(event) => { event.preventDefault(); const formData = new FormData(event.currentTarget); setPendingScanDetails({ name: String(formData.get('name') || 'New scan'), type: String(formData.get('type') || 'Object') as ScanCard['type'] }); setScanProgress(0) }}>
+              <form className="scan-drawer-form" aria-busy={scanProgress !== null} onSubmit={(event) => { void submitScan(event) }}>
                 <fieldset className="scan-drawer-fields" disabled={scanProgress !== null}>
                 <section className="scan-drawer-section">
                   <h3>Images</h3>

@@ -45,6 +45,25 @@ def _job_response(job: ScanJob) -> JobResponse:
                        finished_at=job.finished_at)
 
 
+def _artifact_response(artifact: ScanArtifact) -> ArtifactResponse:
+    return ArtifactResponse(
+        id=artifact.id, kind=artifact.kind, filename=artifact.filename,
+        content_type=artifact.content_type, size_bytes=artifact.size_bytes,
+        download_url=f"{get_settings().api_prefix}/artifacts/{artifact.id}/download",
+    )
+
+
+def _scan_detail_response(scan: Scan, assets: list[ScanAsset], jobs: list[ScanJob],
+                          artifacts: list[ScanArtifact]) -> ScanDetailResponse:
+    return ScanDetailResponse(
+        id=scan.id, name=scan.name, subject_type=scan.subject_type, subject=scan.subject,
+        description=scan.description, status=scan.status, created_at=scan.created_at, updated_at=scan.updated_at,
+        assets=[_asset_response(item) for item in assets],
+        jobs=[_job_response(item) for item in jobs],
+        artifacts=[_artifact_response(item) for item in artifacts],
+    )
+
+
 @router.post("/scans", response_model=ScanResponse, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(rate_limit("create-scan", 20))])
 def create_scan(payload: ScanCreate, db: Session = Depends(get_db), user: User = Depends(require_verified_user)):
@@ -56,11 +75,31 @@ def create_scan(payload: ScanCreate, db: Session = Depends(get_db), user: User =
     return scan
 
 
-@router.get("/scans", response_model=list[ScanResponse])
+@router.get("/scans", response_model=list[ScanDetailResponse])
 def list_scans(limit: int = 50, offset: int = 0, db: Session = Depends(get_db), user: User = Depends(require_verified_user)):
     if not 1 <= limit <= 100 or offset < 0:
         raise HTTPException(status_code=422, detail="limit must be 1-100 and offset must be non-negative")
-    return list(db.scalars(select(Scan).where(Scan.owner_id == user.id).order_by(Scan.updated_at.desc()).limit(limit).offset(offset)))
+    scans = list(db.scalars(select(Scan).where(Scan.owner_id == user.id).order_by(Scan.updated_at.desc()).limit(limit).offset(offset)))
+    if not scans:
+        return []
+    scan_ids = [scan.id for scan in scans]
+    assets = list(db.scalars(select(ScanAsset).where(ScanAsset.scan_id.in_(scan_ids)).order_by(ScanAsset.created_at)))
+    jobs = list(db.scalars(select(ScanJob).where(ScanJob.scan_id.in_(scan_ids)).order_by(ScanJob.created_at.desc())))
+    artifacts = list(db.scalars(select(ScanArtifact).where(ScanArtifact.scan_id.in_(scan_ids)).order_by(ScanArtifact.created_at)))
+    assets_by_scan: dict[uuid.UUID, list[ScanAsset]] = {}
+    jobs_by_scan: dict[uuid.UUID, list[ScanJob]] = {}
+    artifacts_by_scan: dict[uuid.UUID, list[ScanArtifact]] = {}
+    for item in assets:
+        assets_by_scan.setdefault(item.scan_id, []).append(item)
+    for item in jobs:
+        jobs_by_scan.setdefault(item.scan_id, []).append(item)
+    for item in artifacts:
+        artifacts_by_scan.setdefault(item.scan_id, []).append(item)
+    return [
+        _scan_detail_response(scan, assets_by_scan.get(scan.id, []), jobs_by_scan.get(scan.id, []),
+                              artifacts_by_scan.get(scan.id, []))
+        for scan in scans
+    ]
 
 
 @router.get("/scans/{scan_id}", response_model=ScanDetailResponse)
@@ -69,14 +108,7 @@ def get_scan(scan_id: uuid.UUID, db: Session = Depends(get_db), user: User = Dep
     assets = list(db.scalars(select(ScanAsset).where(ScanAsset.scan_id == scan.id).order_by(ScanAsset.created_at)))
     jobs = list(db.scalars(select(ScanJob).where(ScanJob.scan_id == scan.id).order_by(ScanJob.created_at.desc())))
     artifacts = list(db.scalars(select(ScanArtifact).where(ScanArtifact.scan_id == scan.id).order_by(ScanArtifact.created_at)))
-    return ScanDetailResponse(
-        id=scan.id, name=scan.name, subject_type=scan.subject_type, subject=scan.subject,
-        description=scan.description, status=scan.status, created_at=scan.created_at, updated_at=scan.updated_at,
-        assets=[_asset_response(item) for item in assets], jobs=[_job_response(item) for item in jobs],
-        artifacts=[ArtifactResponse(id=item.id, kind=item.kind, filename=item.filename, content_type=item.content_type,
-                                    size_bytes=item.size_bytes,
-                                    download_url=f"{get_settings().api_prefix}/artifacts/{item.id}/download") for item in artifacts],
-    )
+    return _scan_detail_response(scan, assets, jobs, artifacts)
 
 
 @router.patch("/scans/{scan_id}", response_model=ScanResponse)

@@ -1,12 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js'
+import { USDZLoader } from 'three/addons/loaders/USDZLoader.js'
 import cycloneMark from '../../assets/cyclone-mark.webp'
+import { scansApi, type ScanArtifact } from '../../services/scans'
 
 type RenderMode = 'textured' | 'points' | 'wireframe'
 type AxisView = 'front' | 'top' | 'side'
 
-export default function ResultsViewer() {
+function disposeModel(root: THREE.Object3D) {
+  const geometries = new Set<THREE.BufferGeometry>()
+  const materials = new Set<THREE.Material>()
+  root.traverse((object) => {
+    if ((object as THREE.Mesh).geometry) geometries.add((object as THREE.Mesh).geometry)
+    const material = (object as THREE.Mesh).material
+    if (Array.isArray(material)) material.forEach((item) => materials.add(item))
+    else if (material) materials.add(material)
+  })
+  geometries.forEach((geometry) => geometry.dispose())
+  materials.forEach((material) => material.dispose())
+}
+
+export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | null }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
@@ -20,6 +38,7 @@ export default function ResultsViewer() {
   const [renderMode, setRenderMode] = useState<RenderMode>('textured')
   const [autoRotate, setAutoRotate] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   function zoomBy(factor: number) {
     const controls = controlsRef.current
@@ -68,7 +87,9 @@ export default function ResultsViewer() {
     pointsGroup.clear()
 
     const meshes: THREE.Mesh[] = []
+    let containsPointCloud = false
     modelRoot.traverse((object) => {
+      if ((object as THREE.Points).isPoints) containsPointCloud = true
       if ((object as THREE.Mesh).isMesh) meshes.push(object as THREE.Mesh)
     })
     meshes.forEach((mesh) => {
@@ -92,7 +113,7 @@ export default function ResultsViewer() {
         pointsGroup.add(points)
       }
     })
-    modelRoot.visible = mode !== 'points'
+    modelRoot.visible = mode !== 'points' || containsPointCloud
     pointsGroup.visible = mode === 'points'
   }
 
@@ -225,6 +246,88 @@ export default function ResultsViewer() {
     }
   }, [])
 
+  useEffect(() => {
+    const modelRoot = modelRootRef.current
+    const pointsGroup = pointsGroupRef.current
+    if (!modelRoot || !pointsGroup) return
+    modelRoot.clear()
+    pointsGroup.clear()
+    if (!artifact) return
+    let cancelled = false
+    setLoadError(false)
+
+    async function loadArtifact() {
+      let loaded: THREE.Object3D
+      const blob = await scansApi.artifact(artifact.id)
+      const extension = artifact.filename.split('.').pop()?.toLowerCase()
+      if (extension === 'glb' || extension === 'gltf') {
+        const data = await blob.arrayBuffer()
+        const parsed = await new GLTFLoader().parseAsync(data, '')
+        loaded = parsed.scene
+      } else if (extension === 'obj') {
+        loaded = new OBJLoader().parse(await blob.text())
+      } else if (extension === 'ply') {
+        const geometry = new PLYLoader().parse(await blob.arrayBuffer())
+        geometry.computeBoundingSphere()
+        if (geometry.hasAttribute('color')) {
+          loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 0.01, vertexColors: true, sizeAttenuation: true }))
+        } else {
+          loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfe6eb, size: 0.01, sizeAttenuation: true }))
+        }
+      } else if (extension === 'usdz') {
+        loaded = new USDZLoader().parse(await blob.arrayBuffer())
+      } else if (extension === 'spz') {
+        const { SplatMesh } = await import('@sparkjsdev/spark')
+        const url = URL.createObjectURL(blob)
+        const splat = new SplatMesh({ url })
+        try {
+          await splat.initialized
+        } finally {
+          URL.revokeObjectURL(url)
+        }
+        loaded = splat
+      } else {
+        throw new Error(`Unsupported result format: ${extension ?? 'unknown'}`)
+      }
+      if (cancelled) {
+        disposeModel(loaded)
+        return
+      }
+      modelRoot.add(loaded)
+      const bounds = new THREE.Box3().setFromObject(loaded)
+      if (!bounds.isEmpty()) {
+        const center = bounds.getCenter(new THREE.Vector3())
+        const size = bounds.getSize(new THREE.Vector3())
+        loaded.position.sub(center)
+        const distance = Math.max(size.x, size.y, size.z, 1) * 1.8
+        const controls = controlsRef.current
+        if (controls) {
+          controls.target.set(0, 0, 0)
+          controls.object.position.set(distance, distance * 0.75, distance)
+          controls.update()
+        }
+      }
+      applyRenderMode(renderMode)
+    }
+
+    void loadArtifact().catch((error: unknown) => {
+      if (!cancelled) {
+        console.error('The scan result could not be loaded into the viewer.', error)
+        setLoadError(true)
+      }
+    })
+    return () => {
+      cancelled = true
+      modelRoot.traverse((object) => {
+        const wireframe = wireframeMaterialsRef.current.get(object as THREE.Mesh)
+        wireframe?.dispose()
+      })
+      disposeModel(modelRoot)
+      modelRoot.clear()
+      pointsGroup.clear()
+    }
+  }, [artifact?.id])
+
   return (
     <div className="results-viewer-shell" ref={shellRef} aria-label="Interactive 3D viewport. Middle-drag to orbit, scroll to zoom, and right-drag to pan.">
       <div className="results-viewer-canvas" ref={hostRef} />
@@ -260,7 +363,7 @@ export default function ResultsViewer() {
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4M13 3h4v4M17 13v4h-4M3 13v4h4" /></svg>
         </button>
       </div>
-      {webglUnavailable && (
+      {(webglUnavailable || loadError) && (
         <div className="results-webgl-fallback" role="status">
           <img src={cycloneMark} alt="" />
         </div>
