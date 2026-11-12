@@ -5,7 +5,7 @@ USER root
 COPY webxr/backend/.mambarc /root/.mambarc
 COPY webxr/backend/environment-worker.yml /tmp/environment-worker.yml
 COPY webxr/backend/install_blender.py /tmp/install_blender.py
-RUN --mount=type=cache,target=/opt/conda/pkgs \
+RUN --mount=type=cache,id=scan3d-worker-conda-pkgs,target=/opt/conda/pkgs \
     micromamba install --yes --name base --file /tmp/environment-worker.yml
 RUN micromamba run --name base python /tmp/install_blender.py
 WORKDIR /repo
