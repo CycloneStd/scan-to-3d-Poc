@@ -44,18 +44,9 @@ WEBXR_JWT_SECRET=<unique random secret, at least 32 characters>
 WEBXR_FRONTEND_BASE_URL=https://<web-domain>
 WEBXR_CORS_ORIGINS=https://<web-domain>,http://localhost:5173
 # Railway Free, Trial, and Hobby: use the HTTPS API provider below.
-WEBXR_EMAIL_PROVIDER=resend
 WEBXR_EMAIL_FROM_EMAIL=<verified sender>
 WEBXR_EMAIL_FROM_NAME=Cyclone Scan
 WEBXR_RESEND_API_KEY=<Resend API key>
-# For Pro plans with SMTP access, use provider=smtp and set WEBXR_SMTP_* instead.
-# WEBXR_EMAIL_PROVIDER=smtp
-# WEBXR_SMTP_HOST=<TLS SMTP host>
-# WEBXR_SMTP_PORT=587
-# WEBXR_SMTP_USERNAME=<SMTP username>
-# WEBXR_SMTP_PASSWORD=<SMTP password>
-# WEBXR_SMTP_FROM_EMAIL=<verified sender>
-# WEBXR_SMTP_STARTTLS=true
 WEBXR_STORAGE_BACKEND=s3
 WEBXR_STORAGE_S3_BUCKET=<private bucket>
 WEBXR_STORAGE_S3_REGION=<region>
@@ -68,7 +59,7 @@ WEBXR_PIPELINE_WORK_ROOT=/tmp/scan3d-pipeline
 WEBXR_PIPELINE_TRACK=mesh
 ```
 
-For Resend, create an API key and verify a sending domain in Resend, then use an address on that domain for `WEBXR_EMAIL_FROM_EMAIL`. Railway Free, Trial, and Hobby plans block outbound SMTP; transactional email HTTPS APIs remain available.
+Create a Resend API key and verify a sending domain in Resend, then use an address on that domain for `WEBXR_EMAIL_FROM_EMAIL`.
 
 Use Railway's actual Postgres/Redis variable references. For S3, provide the same bucket credentials to the API and worker and configure bucket CORS for the web domain so browsers can use signed uploads/downloads. The CORS example includes the local Vite origin so you can develop the frontend locally against Railway. Use a separate Railway environment and data services for development if you want to keep test data separate from production. Set the web service's build variable `VITE_API_BASE_URL=https://<api-domain>/api/v1`. Generate domains for the API and web services; keep the worker private.
 
@@ -112,12 +103,12 @@ The worker launches the existing CLI, reads its stage manifest for progress, and
 
 All settings use the `WEBXR_` prefix; `.env.example` lists the development settings. Never commit `.env`, credentials, Colab auth files, or cloud keys. For production:
 
-- Set `WEBXR_ENVIRONMENT=production`, a unique secret, exact frontend CORS origins, and SMTP with TLS.
+- Set `WEBXR_ENVIRONMENT=production`, a unique secret, exact frontend CORS origins, and Resend credentials/sender.
 - Use a managed PostgreSQL database with backups and TLS.
 - Use Railway's managed PostgreSQL and Redis for the application data and queue, and an S3-compatible private bucket for source files and model artifacts. Keep the object bucket private, use least-privilege credentials, configure bucket CORS for the deployed frontend, and apply lifecycle policies to abandoned multipart uploads.
 - Set `WEBXR_STORAGE_S3_ENDPOINT_URL` to the private endpoint used by API/workers and `WEBXR_STORAGE_S3_PUBLIC_ENDPOINT_URL` to the browser-reachable endpoint used only for signed upload/download URLs.
 - Keep Redis, PostgreSQL, MinIO/S3, and worker ports private. Terminate HTTPS at a trusted reverse proxy.
-- Build and deploy API and GPU-capable/Colab-authorized workers as separate services. Do not use the local Mailpit or MinIO credentials in production.
+- Build and deploy API and GPU-capable/Colab-authorized workers as separate services. Do not use development credentials in production.
 - Run `alembic upgrade head` as a release step before starting the new API version.
 
-Production credentials, SMTP account, cloud bucket, Colab authorization, and deployment host are intentionally supplied through environment/secret management rather than stored in this repository.
+Production credentials, Resend API key, cloud bucket, Colab authorization, and deployment host are supplied through environment/secret management rather than stored in this repository.

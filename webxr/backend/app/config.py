@@ -21,17 +21,9 @@ class Settings(BaseSettings):
     password_reset_token_minutes: int = 30
     frontend_base_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173"
-    email_provider: str = "smtp"
     email_from_email: str | None = None
     email_from_name: str | None = None
     resend_api_key: SecretStr | None = None
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    smtp_username: str | None = None
-    smtp_password: SecretStr | None = None
-    smtp_from_email: str | None = None
-    smtp_from_name: str = "Cyclone Scan"
-    smtp_starttls: bool = True
     storage_backend: str = "local"
     storage_local_root: Path = Path("./var/storage")
     storage_s3_bucket: str | None = None
@@ -87,20 +79,12 @@ class Settings(BaseSettings):
             raise ValueError("Set a unique WEBXR_JWT_SECRET in production")
         if self.storage_backend == "s3" and not self.storage_s3_bucket:
             raise ValueError("WEBXR_STORAGE_S3_BUCKET is required when storage_backend=s3")
-        if self.email_provider not in {"smtp", "resend"}:
-            raise ValueError("WEBXR_EMAIL_PROVIDER must be 'smtp' or 'resend'")
-        if self.environment == "production" and self.email_provider == "smtp" and not self.smtp_host:
-            raise ValueError("WEBXR_SMTP_HOST is required when WEBXR_EMAIL_PROVIDER=smtp")
-        if self.environment == "production" and self.email_provider == "resend" and not self.resend_api_key:
-            raise ValueError("WEBXR_RESEND_API_KEY is required when WEBXR_EMAIL_PROVIDER=resend")
-        if self.environment == "production" and not (self.email_from_email or self.smtp_from_email):
+        if self.environment == "production" and not self.resend_api_key:
+            raise ValueError("WEBXR_RESEND_API_KEY is required in production")
+        if self.environment == "production" and not self.email_from_email:
             raise ValueError("WEBXR_EMAIL_FROM_EMAIL is required in production")
-        if self.environment == "production" and self.email_provider == "smtp" and not self.smtp_starttls:
-            raise ValueError("Production SMTP must use STARTTLS")
         if self.environment == "production" and "*" in self.origins:
             raise ValueError("Production CORS origins must be explicit, not '*'")
-        if self.smtp_username and not self.smtp_password:
-            raise ValueError("WEBXR_SMTP_PASSWORD is required when WEBXR_SMTP_USERNAME is set")
         if (self.environment == "production" and self.storage_backend == "s3"
                 and self.storage_s3_endpoint_url and not self.storage_s3_public_endpoint_url):
             raise ValueError("Set a browser-reachable WEBXR_STORAGE_S3_PUBLIC_ENDPOINT_URL in production")
