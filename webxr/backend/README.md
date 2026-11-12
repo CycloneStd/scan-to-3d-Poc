@@ -12,25 +12,69 @@ This backend provides account authentication, verification and password reset, s
 
 Passwords use Argon2id. Access tokens are short lived; refresh tokens are random, one-time-rotated values stored only as SHA-256 hashes. Email verification, password reset, refresh, logout, and password change are supported. Authentication and upload routes are rate limited. Each scan and object is checked against the authenticated owner. Uploads are size, type, and file-signature checked; file bytes are never stored in PostgreSQL.
 
-## Local setup with Docker Compose
+## Local development
 
-Run commands from this directory (`webxr/backend`).
+Use Docker Desktop with Linux containers. From the repository root, copy `webxr/backend/.env.example` to `webxr/backend/.env`, then set URL-safe random values for `POSTGRES_PASSWORD` and `WEBXR_JWT_SECRET` (at least 32 characters). Set `COLAB_CONFIG_DIR` to a private folder outside the repository with forward slashes on Windows. The default local storage and database live in Docker volumes.
 
-1. Copy `.env.example` to `.env`. Generate separate random values for `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, and `WEBXR_JWT_SECRET`. The JWT secret must be at least 32 characters; use URL-safe values for passwords used inside the compose database URL.
-2. Set `COLAB_CONFIG_DIR` in `.env` to a private host folder outside this repository (for example, `C:/Users/<you>/.config/colab-docker`). Build the worker, then run `docker compose run --rm --entrypoint micromamba worker run --name base colab sessions` and complete the Google authorization yourself in the interactive terminal. The folder is mounted into the worker so the CLI can store and refresh its credentials. Never commit this folder.
-3. Start the API, worker, database, queue, object store, and local mail sink:
+Authorize the pipeline's Colab adapter once. This stores the credentials in the private folder mounted into the worker:
 
-   ```sh
-   docker compose up --build -d
-   ```
+```sh
+docker compose -f webxr/backend/docker-compose.yml build worker
+docker compose -f webxr/backend/docker-compose.yml run --rm --entrypoint micromamba worker run --name base colab sessions
+```
 
-4. Apply the initial database schema:
+Complete the Google authorization in the interactive terminal, then start the full prototype:
 
-   ```sh
-   docker compose exec api alembic upgrade head
-   ```
+```sh
+docker compose -f webxr/backend/docker-compose.yml up --build -d
+```
 
-5. Open `http://localhost:8000/docs` for the local API schema and `http://localhost:8025` to view verification/reset emails. Local uploads and generated files are persisted in the `backend-data` Docker volume.
+The API applies Alembic migrations at startup. The frontend, API, Postgres, Redis, worker, beat scheduler, and Mailpit start together. Visit `http://localhost:5173`, `http://localhost:8000/docs`, and `http://localhost:8025` (email preview). To inspect services use `docker compose -f webxr/backend/docker-compose.yml logs -f api worker`.
+
+The first worker image build is large because it installs COLMAP, Blender, FFmpeg, and the reconstruction stack. Its Conda index now uses the compressed upstream feed instead of the GitHub OCI mirror that was dropping large downloads; BuildKit also keeps downloaded package files across a failed build retry. Later builds reuse Docker's layer cache. Local web-only work can still use `cd webxr; npm run dev` while the backend services run in Compose.
+
+### Why the earlier worker build failed
+
+The captured build log ends with `Download error (18) Transferred a partial file`. The custom OCI mirror made Micromamba fetch large full repository indexes (about 34 MB and 72 MB in this attempt); the TLS connection closed before the files completed, and Micromamba exhausted its retries. The worker config now uses Conda-forge directly with Zstandard-compressed indexes, and BuildKit caches successfully downloaded packages for retries. The attempted build was interrupted before this corrected dependency-install step completed, so the worker image still needs to be built by Railway or in a later local run.
+
+## Railway deployment
+
+Deploy three services from the repository root, all connected to the same repository and branch:
+
+1. **API:** set the service config file path to `/webxr/backend/railway.api.toml`.
+2. **Worker:** set the service config file path to `/webxr/backend/railway.worker.toml`.
+3. **Web:** set the service config file path to `/railway.web.toml`.
+
+Add Railway-managed PostgreSQL and Redis. Set shared API/worker variables using Railway's service references (update service names if yours differ):
+
+```text
+WEBXR_ENVIRONMENT=production
+WEBXR_DATABASE_URL=${{Postgres.DATABASE_URL}}
+WEBXR_REDIS_URL=${{Redis.REDIS_URL}}
+WEBXR_JWT_SECRET=<unique random secret, at least 32 characters>
+WEBXR_FRONTEND_BASE_URL=https://<web-domain>
+WEBXR_CORS_ORIGINS=https://<web-domain>,http://localhost:5173
+WEBXR_SMTP_HOST=<TLS SMTP host>
+WEBXR_SMTP_PORT=587
+WEBXR_SMTP_USERNAME=<SMTP username>
+WEBXR_SMTP_PASSWORD=<SMTP password>
+WEBXR_SMTP_FROM_EMAIL=<verified sender>
+WEBXR_SMTP_STARTTLS=true
+WEBXR_STORAGE_BACKEND=s3
+WEBXR_STORAGE_S3_BUCKET=<private bucket>
+WEBXR_STORAGE_S3_REGION=<region>
+WEBXR_STORAGE_S3_ENDPOINT_URL=<private endpoint>
+WEBXR_STORAGE_S3_PUBLIC_ENDPOINT_URL=<browser reachable endpoint>
+WEBXR_STORAGE_S3_ACCESS_KEY=<least privilege key>
+WEBXR_STORAGE_S3_SECRET_KEY=<secret>
+WEBXR_PIPELINE_CONFIG_TEMPLATE=/repo/configs/house.yaml
+WEBXR_PIPELINE_WORK_ROOT=/tmp/scan3d-pipeline
+WEBXR_PIPELINE_TRACK=mesh
+```
+
+Use Railway's actual Postgres/Redis variable references. For S3, provide the same bucket credentials to the API and worker and configure bucket CORS for the web domain so browsers can use signed uploads/downloads. The CORS example includes the local Vite origin so you can develop the frontend locally against Railway. Use a separate Railway environment and data services for development if you want to keep test data separate from production. Set the web service's build variable `VITE_API_BASE_URL=https://<api-domain>/api/v1`. Generate domains for the API and web services; keep the worker private.
+
+The API service runs `alembic upgrade head` as a pre-deploy step and reports readiness at `/health/ready`. The worker executes the existing `scan3d` CLI and uses the Colab GPU adapter. Provide the worker with valid Colab CLI credentials and persistent configuration at `/home/mambauser/.config/colab` (a Railway volume); otherwise the API can accept a job, but dense reconstruction cannot start. The worker's Linux image build is resource intensive. Railway does not share a service's local filesystem with other services, which is why Railway must use S3-compatible storage; local development continues to use private local storage. Review Railway's [Dockerfile setup](https://docs.railway.com/builds/dockerfiles) and [pre-deploy migrations](https://docs.railway.com/deployments/pre-deploy-command) when wiring services.
 
 `/health/live` checks the API process. `/health/ready` checks PostgreSQL, Redis, and object storage. The worker image installs the pipeline's Linux dependencies from Conda-forge plus the backend requirements. Set `WEBXR_PIPELINE_TRACK=mesh` or `splat` to choose output type. The default work directory and local object data live in the `backend-data` volume; completed work directories are cleaned after the configured retention period while published artifacts remain in object storage.
 

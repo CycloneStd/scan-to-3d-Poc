@@ -67,6 +67,7 @@ services:
       - "8000:8000"
     volumes:
       - backend-data:/data
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,7 +105,24 @@ services:
         condition: service_healthy
     command: ["micromamba", "run", "--name", "base", "celery", "-A", "app.worker:celery_app", "beat", "--loglevel=INFO"]
 
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../:/app
+      - web-node-modules:/app/node_modules
+      - ../../web:/web
+    command: ["sh", "-c", "if [ ! -x node_modules/.bin/vite ]; then npm ci; fi && npm run dev -- --host 0.0.0.0"]
+    depends_on:
+      api:
+        condition: service_started
+
 volumes:
   postgres-data:
   redis-data:
   backend-data:
+  web-node-modules:

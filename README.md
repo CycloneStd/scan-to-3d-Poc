@@ -27,6 +27,10 @@ scan3d report --run-id <id>
 Outputs: `runs/<id>/08_export/` (OBJ, GLB, renders) and `runs/<id>/report.md`.
 Stages are cached; rerun the same command with the same `--run-id` to resume.
 
+## Web prototype (local and Railway)
+
+The web app, API, and reconstruction worker setup is documented in [webxr/backend/README.md](webxr/backend/README.md). Docker Compose starts the local prototype at `http://localhost:5173`; Railway uses separate web, API, and worker services connected to the same pipeline.
+
 ## Notes
 See `docs/limitations.md`. A 125-photo dense run used about 80 minutes of T4 time.
 

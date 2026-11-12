@@ -5,9 +5,29 @@ dependencies:
   - python=3.11
   - colmap=4.2
   - ffmpeg
-  - blender>=4
   - numpy
   - opencv
+  - dbus
+  - fontconfig
+  - freetype
+  - libegl
+  - libgl
+  - libglu
+  - libglib
+  - libgomp
+  - libxkbcommon
+  - xorg-libx11
+  - xorg-libxcursor
+  - xorg-libxcomposite
+  - xorg-libxdamage
+  - xorg-libxext
+  - xorg-libxfixes
+  - xorg-libxi
+  - xorg-libxinerama
+  - xorg-libxrandr
+  - xorg-libxrender
+  - xorg-libxtst
+  - xorg-libxxf86vm
   - pip
   - pip:
       - google-colab-cli

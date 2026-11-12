@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     pipeline_work_retention_days: int = 7
     artifact_download_ttl_seconds: int = 900
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        # Railway's Postgres connection variables use postgres:// or postgresql://.
+        # This project installs psycopg v3, so make the driver explicit.
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
+
     @field_validator("storage_backend")
     @classmethod
     def validate_storage_backend(cls, value: str) -> str:

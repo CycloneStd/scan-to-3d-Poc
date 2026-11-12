@@ -1,9 +1,13 @@
+# syntax=docker/dockerfile:1.7
 FROM mambaorg/micromamba:2.0.5
 ENV PIP_REQUIRE_HASHES=0
 USER root
+COPY webxr/backend/.mambarc /root/.mambarc
 COPY webxr/backend/environment-worker.yml /tmp/environment-worker.yml
-RUN micromamba install --yes --name base --file /tmp/environment-worker.yml \
-    && micromamba clean --all --yes
+COPY webxr/backend/install_blender.py /tmp/install_blender.py
+RUN --mount=type=cache,target=/opt/conda/pkgs \
+    micromamba install --yes --name base --file /tmp/environment-worker.yml
+RUN micromamba run --name base python /tmp/install_blender.py
 WORKDIR /repo
 COPY --chown=mambauser:mambauser . /repo
 RUN micromamba run --name base python -m pip install --no-cache-dir -r webxr/backend/requirements.txt \
