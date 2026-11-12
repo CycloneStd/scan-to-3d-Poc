@@ -29,11 +29,16 @@ def main() -> None:
 
 def _extract(payload) -> None:
     DESTINATION.mkdir(parents=True, exist_ok=True)
-    prefix = f"blender-{VERSION}-linux-x64/"
+    archive_root = f"blender-{VERSION}-linux-x64"
+    prefix = f"{archive_root}/"
     with tarfile.open(fileobj=payload, mode="r:xz") as archive:
         for member in archive.getmembers():
+            # tar archives may represent their top-level directory without a
+            # trailing slash. Accept that root entry and skip extracting it.
+            if member.name.rstrip("/") == archive_root:
+                continue
             if not member.name.startswith(prefix):
-                raise SystemExit("Unexpected path in Blender archive")
+                raise SystemExit(f"Unexpected path in Blender archive: {member.name}")
             relative = member.name[len(prefix):]
             if not relative:
                 continue
