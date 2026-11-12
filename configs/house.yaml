@@ -36,3 +36,7 @@ splat:
   max_steps: 30000
   max_image_size: 768
   extra_args: ["--steps_scaler", "0.25"]
+
+ar:
+  target_faces: 250000
+  texture_px: 4096

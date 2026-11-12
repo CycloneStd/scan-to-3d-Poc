@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -81,6 +82,15 @@ class IngestStage(Stage):
             if over > 1:
                 keep_sharpest(gdir, over)
             groups[group] = sorted(f"images/{group}/{f.name}" for f in gdir.glob("*.jpg"))
+
+        raw = ctx.cfg["inputs"].get("photos_dir")
+        heic = [p for p in Path(raw).iterdir() if p.suffix.lower() in (".heic", ".heif")] if raw and Path(raw).is_dir() else []
+        if not any(groups.values()):
+            raise RuntimeError("No usable images found." + (
+                f" There are {len(heic)} HEIC files: set the iPad to Settings > Camera > Formats > "
+                "Most Compatible, or convert them to JPG." if heic else ""))
+        if heic:
+            logging.getLogger("scan3d.ingest").warning("%d HEIC files are being ignored", len(heic))
 
         (out / "ingest.json").write_text(json.dumps({"groups": groups}, indent=2))
         return {"groups": {g: len(f) for g, f in groups.items()}, "total_images": sum(map(len, groups.values()))}
