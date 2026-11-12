@@ -1,0 +1,114 @@
+      .landing-brand { display: inline-flex; width: 148px; align-items: center; text-decoration: none; }
+      .landing-brand img { display: block; width: 100%; height: auto; }
+      .landing-brand:focus-visible { outline: 2px solid var(--app-color-primary-border-muted); outline-offset: 6px; border-radius: 4px; }
+      .mobile-landing-brand { margin-left: 12px; }
+      @media (max-width: 520px) {
+        .mobile-landing-brand { width: 112px; margin-left: 8px; }
+      }
+.login-action { background-color: #000; color: #fff; border-color: #000; }
+      .login-action:hover { background-color: #202020; }
+      html[data-color-mode="dark"] .login-action { background-color: #f1f1f1; color: #151515; border-color: #f1f1f1; }
+      html[data-color-mode="dark"] .login-action:hover { background-color: #d9d9d9; }
+      .auth-actions-card {
+        background-color: #fff;
+        border-radius: 1.5rem;
+      }
+      @media (min-width: 64rem) {
+        .auth-actions-card { border-radius: 1.375rem; }
+      }
+      .signup-action { background-color: transparent; color: #151515; border-color: transparent; }
+      .signup-action:hover { background-color: #f1f1f1; }
+      html[data-color-mode="dark"] .auth-actions-card {
+        background-color: var(--app-color-surface-bg-base);
+      }
+      html[data-color-mode="dark"] .signup-action { color: #fff; }
+      html[data-color-mode="dark"] .signup-action:hover { background-color: #242424; }
+      html[data-color-mode="light"] {
+        --mobile-drawer-surface: #fff;
+        --mobile-drawer-text: #151515;
+        --mobile-drawer-line: #dedede;
+        --mobile-drawer-hover: #f1f1f1;
+        --mobile-drawer-handle: #d2d2d2;
+      }
+      html[data-color-mode="dark"] {
+        --mobile-drawer-surface: #050505;
+        --mobile-drawer-text: #f1f1f1;
+        --mobile-drawer-line: #303030;
+        --mobile-drawer-hover: #1c1c1c;
+        --mobile-drawer-handle: #383838;
+      }
+      .mobile-auth-menu {
+        position: fixed;
+        inset: 0;
+        z-index: 1001;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 0 14px max(8px, env(safe-area-inset-bottom));
+        background: #000c;
+      }
+      .mobile-auth-menu[hidden] { display: none; }
+      .mobile-auth-menu__panel {
+        width: min(100%, 384px);
+        padding: 12px 20px 22px;
+        border-radius: 28px;
+        background: var(--mobile-drawer-surface, #fff);
+        color: var(--mobile-drawer-text, #151515);
+        box-shadow: 0 16px 48px #0008;
+      }
+      .mobile-auth-menu__handle {
+        width: 96px;
+        height: 4px;
+        margin: 0 auto 14px;
+        border-radius: 99px;
+        background: var(--mobile-drawer-handle, #d2d2d2);
+      }
+      .mobile-auth-menu__item {
+        display: flex;
+        width: 100%;
+        min-height: 52px;
+        align-items: center;
+        gap: 16px;
+        padding: 6px 8px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+      }
+      .mobile-auth-menu__item:hover,
+      .mobile-auth-menu__item:focus-visible { background: var(--mobile-drawer-hover, #f1f1f1); }
+      .mobile-auth-menu__icon {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+        place-items: center;
+        border: 2px solid var(--mobile-drawer-line, #dedede);
+        border-radius: 11px;
+        color: inherit;
+      }
+      .mobile-auth-menu__icon svg { width: 17px; height: 17px; }
+      .hero-subtitle {
+        max-width: 38rem;
+        margin: 0;
+        font-family: Mirage;
+        font-size: 24px;
+        font-weight: 450;
+        line-height: 34px;
+        color: #f1f1f1;
+      }
+      .signup-label {
+        font-family: Mirage;
+        font-weight: 450;
+        line-height: 34px;
+        color: #000;
+      }
+      html[data-color-mode="dark"] .signup-label { color: #fff; }
+      @media (min-width: 64rem) {
+        .mobile-auth-menu { display: none !important; }
+      }
+
+

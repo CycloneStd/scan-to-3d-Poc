@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Vite build output and cache
+dist/
+.vite/
+*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/
