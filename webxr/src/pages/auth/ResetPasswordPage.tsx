@@ -2,7 +2,7 @@ import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { authApi } from '../../services/auth'
 import LoginImageCards from '../../components/auth/LoginImageCards'
-import cycloneWordmark from '../../assets/cyclone-wordmark.png'
+import cycloneWordmark from '../../assets/cyclone-wordmark.webp'
 import '../../styles/components/input.css'
 import '../../styles/login.css'
 

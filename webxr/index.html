@@ -9,46 +9,8 @@
     <link rel="stylesheet" href="./src/styles/components.css" />
     <link rel="stylesheet" href="./src/styles/foundation.css" />
     <link rel="stylesheet" href="./src/styles/landing.css" />
-    <script>
-      if (window.location.pathname !== '/') {
-        document.documentElement.dataset.routeShell = 'true'
-      }
-    </script>
-    <style>
-      #route-loading { display: none; }
-      html[data-route-shell="true"]:not([data-route-ready="true"]) body > #top { display: none !important; }
-      html[data-route-shell="true"]:not([data-route-ready="true"]) #route-loading {
-        position: fixed;
-        inset: 0;
-        z-index: 2147483647;
-        display: grid;
-        place-content: center;
-        justify-items: center;
-        gap: 12px;
-        background: #151515;
-        color: #f5f5f5;
-        font: 500 14px/1.4 system-ui, sans-serif;
-      }
-      .route-loading-logo {
-        width: 48px;
-        height: 48px;
-        object-fit: contain;
-        animation: route-loading-pulse 1.2s ease-in-out infinite alternate;
-      }
-      @keyframes route-loading-pulse {
-        from { opacity: 1; transform: scale(1); }
-        to { opacity: 0.55; transform: scale(0.82); }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .route-loading-logo { animation: none; }
-      }
-    </style>
 </head>
   <body class="bg-surface-base text-surface">
-    <div id="route-loading" role="status" aria-live="polite">
-      <img class="route-loading-logo" src="./src/assets/cyclone-mark.png" alt="" aria-hidden="true" />
-      <span>Loading page…</span>
-    </div>
     <div id="top">
       <div>
           <div
@@ -60,7 +22,7 @@
                   <div class="flex w-full items-center justify-between py-4">
                     <div class="flex flex-1 justify-start">
                       <a class="landing-brand pointer-events-auto" href="#top" aria-label="Cyclone home">
-                        <img src="./src/assets/cyclone-wordmark.png" alt="Cyclone" />
+                        <img src="./src/assets/cyclone-wordmark.webp" alt="Cyclone" />
                       </a>
                     </div>
                     <div class="flex flex-1 justify-end">
@@ -110,7 +72,7 @@
                         class="landing-brand mobile-landing-brand"
                         aria-label="Cyclone home"
                       >
-                        <img src="./src/assets/cyclone-wordmark.png" alt="Cyclone" />
+                        <img src="./src/assets/cyclone-wordmark.webp" alt="Cyclone" />
                       </a>
                       <div class="flex gap-1">
                         <button

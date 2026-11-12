@@ -1,4 +1,4 @@
-import cycloneWordmark from '../../assets/cyclone-wordmark.png'
+import cycloneWordmark from '../../assets/cyclone-wordmark.webp'
 
 type AppHeaderProps = { page: 'library' | 'model' }
 

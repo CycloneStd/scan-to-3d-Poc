@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import LoginImageCards from '../../components/auth/LoginImageCards'
-import cycloneWordmark from '../../assets/cyclone-wordmark.png'
+import cycloneWordmark from '../../assets/cyclone-wordmark.webp'
 import { authApi } from '../../services/auth'
 import '../../styles/components/input.css'
 import '../../styles/login.css'

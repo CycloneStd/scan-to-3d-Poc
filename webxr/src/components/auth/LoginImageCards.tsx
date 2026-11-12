@@ -21,7 +21,7 @@ export default function LoginImageCards() {
           key={position}
         >
           <img
-            src={`https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=480&q=75`}
+            src={`https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=480&q=70&fm=webp`}
             alt=""
             loading="lazy"
             fetchPriority="low"

@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import type { SparkRenderer as SparkRendererType, SplatMesh as SplatMeshType } from '@sparkjsdev/spark'
-import cycloneMark from '../../assets/cyclone-mark.png'
+import cycloneMark from '../../assets/cyclone-mark.webp'
 
 export type ModelPreviewFormat = 'ply' | 'glb' | 'obj'
 

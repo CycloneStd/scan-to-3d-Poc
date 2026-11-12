@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent } from 'react'
-import cycloneMark from '../assets/cyclone-mark.png'
+import cycloneMark from '../assets/cyclone-mark.webp'
 import arcticIcebergImage from '../assets/arctic-iceberg-scan.webp'
 import AppHeader from '../components/library/AppHeader'
 import '../styles/library.css'

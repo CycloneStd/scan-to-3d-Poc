@@ -1,15 +1,8 @@
 import './styles/components/input.css'
 import './styles/login.css'
-import { StrictMode, createElement, useEffect, type ComponentType, type ReactNode } from 'react'
+import { StrictMode, createElement, type ComponentType } from 'react'
 
 type RouteModule = { default: ComponentType }
-
-function RouteReady({ children }: { children: ReactNode }) {
-  useEffect(() => {
-    document.documentElement.dataset.routeReady = 'true'
-  }, [])
-  return children
-}
 
 const authRoutes: Record<string, () => Promise<RouteModule>> = {
   '/signup': () => import('./pages/auth/SignupPage'),
@@ -52,7 +45,6 @@ async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: bool
 async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
   if (normalizedPath(url) === '/' && mode === 'initial') {
     activeUrl = `${url.pathname}${url.search}${url.hash}`
-    document.documentElement.dataset.routeReady = 'true'
     return
   }
   if (normalizedPath(url) === '/' && mode !== 'initial') {
@@ -64,7 +56,6 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
     import('react-dom/client'),
   ])
   const destination = loaded.destination
-  const path = normalizedPath(destination)
 
   if (loaded.page === undefined) throw new Error('The requested page has no route module.')
   if (!appRoot) {
@@ -75,7 +66,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
   }
 
   document.body.className = `${loaded.protected || loaded.notFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
-  appRoot.render(createElement(StrictMode, null, createElement(RouteReady, null, createElement(loaded.page.default))))
+  appRoot.render(createElement(StrictMode, null, createElement(loaded.page.default)))
 
   if (mode === 'push') window.history.pushState(null, '', destination)
   else if (destination.href !== url.href) window.history.replaceState(null, '', destination)
@@ -99,7 +90,6 @@ function showInitialLoadError() {
   section.append(heading, reload)
   main.append(section)
   document.body.replaceChildren(main)
-  document.documentElement.dataset.routeReady = 'true'
 }
 
 document.addEventListener('click', (event) => {

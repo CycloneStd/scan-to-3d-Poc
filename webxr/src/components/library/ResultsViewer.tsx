@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import cycloneMark from '../../assets/cyclone-mark.png'
+import cycloneMark from '../../assets/cyclone-mark.webp'
 
 type RenderMode = 'textured' | 'points' | 'wireframe'
 type AxisView = 'front' | 'top' | 'side'
