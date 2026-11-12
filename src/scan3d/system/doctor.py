@@ -22,6 +22,9 @@ def _mem_gb() -> float | None:
 
 def collect() -> dict:
     tools = {t: shutil.which(t) for t in TOOLS}
+    colmap_env = os.environ.get("COLMAP_BIN")
+    if colmap_env and os.path.exists(os.path.expanduser(colmap_env)):
+        tools["colmap"] = os.path.expanduser(colmap_env)
     info: dict = {
         "platform": platform.platform(),
         "python": sys.version.split()[0],
@@ -35,10 +38,10 @@ def collect() -> dict:
     else:
         info["gpu"] = None
     if tools["colmap"]:
-        _, out = capture(["colmap", "-h"])
+        _, out = capture([tools["colmap"], "-h"])
         banner = next((ln for ln in out.splitlines() if "COLMAP" in ln), "")
         info["colmap_version"] = banner.strip()
-        rc, gm = capture(["colmap", "global_mapper", "-h"])
+        rc, gm = capture([tools["colmap"], "global_mapper", "-h"])
         info["colmap_has_global_mapper"] = rc == 0 and "not recognized" not in gm
     if tools["blender"]:
         _, out = capture(["blender", "--version"], timeout=120)
