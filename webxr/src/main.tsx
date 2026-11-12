@@ -1,8 +1,15 @@
 import './styles/components/input.css'
 import './styles/login.css'
-import { StrictMode, createElement, type ComponentType } from 'react'
+import { StrictMode, createElement, useLayoutEffect, type ComponentType, type ReactNode } from 'react'
 
 type RouteModule = { default: ComponentType }
+
+function RouteCommit({ children, onCommit }: { children: ReactNode; onCommit: () => void }) {
+  useLayoutEffect(() => {
+    onCommit()
+  }, [onCommit])
+  return children
+}
 
 const authRoutes: Record<string, () => Promise<RouteModule>> = {
   '/signup': () => import('./pages/auth/SignupPage'),
@@ -13,10 +20,38 @@ const authRoutes: Record<string, () => Promise<RouteModule>> = {
 }
 
 let appRoot: ReturnType<typeof import('react-dom/client')['createRoot']> | undefined
+let appContainer: HTMLDivElement | undefined
 let activeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+let navigationSequence = 0
+let committedNavigationSequence = 0
+const landingRoot = document.getElementById('top')
+const landingBodyClass = document.body.className
+const prefetchedRoutes = new Set<string>()
 
 function normalizedPath(url: URL) {
   return url.pathname.replace(/\/+$/, '') || '/'
+}
+
+async function loadAuthRoute(path: string) {
+  const [page, imageCards] = await Promise.all([
+    authRoutes[path](),
+    import('./components/auth/LoginImageCards'),
+  ])
+  await imageCards.preloadLoginImages()
+  return page
+}
+
+function prefetchRoute(url: URL) {
+  const path = normalizedPath(url)
+  if (path === '/' || prefetchedRoutes.has(path)) return
+  prefetchedRoutes.add(path)
+  const protectedRoute = path === '/library' || path === '/scan' || /^\/model\/[^/]+$/.test(path)
+  const load = authRoutes[path]
+    ? () => loadAuthRoute(path)
+    : protectedRoute
+      ? () => import('./pages/LibraryPage')
+      : () => import('./pages/NotFoundPage')
+  void load().catch(() => prefetchedRoutes.delete(path))
 }
 
 async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: boolean; notFound: boolean; destination: URL }> {
@@ -31,46 +66,61 @@ async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: bool
       if (error instanceof ApiRequestError && error.status === 401) {
         const next = `${url.pathname}${url.search}${url.hash}`
         const destination = new URL(`/login?next=${encodeURIComponent(next)}`, window.location.origin)
-        return { page: await authRoutes['/login'](), protected: false, notFound: false, destination }
+        return { page: await loadAuthRoute('/login'), protected: false, notFound: false, destination }
       }
       throw error
     }
   }
 
-  if (authRoutes[path]) return { page: await authRoutes[path](), protected: protectedRoute, notFound: false, destination: url }
+  if (authRoutes[path]) return { page: await loadAuthRoute(path), protected: protectedRoute, notFound: false, destination: url }
   if (protectedRoute) return { page: await import('./pages/LibraryPage'), protected: true, notFound: false, destination: url }
   return { page: await import('./pages/NotFoundPage'), protected: false, notFound: true, destination: url }
 }
 
 async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
+  const navigationId = ++navigationSequence
   if (normalizedPath(url) === '/' && mode === 'initial') {
     activeUrl = `${url.pathname}${url.search}${url.hash}`
     return
   }
   if (normalizedPath(url) === '/' && mode !== 'initial') {
-    window.location.assign(url.href)
+    if (navigationId !== navigationSequence) return
+    if (landingRoot) landingRoot.hidden = false
+    if (appContainer) appContainer.hidden = true
+    document.body.className = landingBodyClass
+    if (mode === 'push') window.history.pushState(null, '', url)
+    else if (url.href !== window.location.href) window.history.replaceState(null, '', url)
+    activeUrl = `${url.pathname}${url.search}${url.hash}`
     return
   }
   const [loaded, reactDom] = await Promise.all([
     loadRoute(url),
     import('react-dom/client'),
   ])
+  if (navigationId !== navigationSequence) return
   const destination = loaded.destination
 
   if (loaded.page === undefined) throw new Error('The requested page has no route module.')
   if (!appRoot) {
     const root = document.createElement('div')
     root.id = 'app-root'
-    document.body.replaceChildren(root)
+    root.hidden = true
+    document.body.append(root)
+    appContainer = root
     appRoot = reactDom.createRoot(root)
   }
 
-  document.body.className = `${loaded.protected || loaded.notFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
-  appRoot.render(createElement(StrictMode, null, createElement(loaded.page.default)))
-
-  if (mode === 'push') window.history.pushState(null, '', destination)
-  else if (destination.href !== url.href) window.history.replaceState(null, '', destination)
-  activeUrl = `${destination.pathname}${destination.search}${destination.hash}`
+  const commit = () => {
+    if (navigationId !== navigationSequence || committedNavigationSequence === navigationId) return
+    committedNavigationSequence = navigationId
+    if (landingRoot) landingRoot.hidden = true
+    if (appContainer) appContainer.hidden = false
+    document.body.className = `${loaded.protected || loaded.notFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
+    if (mode === 'push') window.history.pushState(null, '', destination)
+    else if (destination.href !== url.href) window.history.replaceState(null, '', destination)
+    activeUrl = `${destination.pathname}${destination.search}${destination.hash}`
+  }
+  appRoot.render(createElement(StrictMode, null, createElement(RouteCommit, { onCommit: commit }, createElement(loaded.page.default))))
 }
 
 function showInitialLoadError() {
@@ -97,10 +147,22 @@ document.addEventListener('click', (event) => {
   const anchor = event.target.closest('a[href]')
   if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute('download')) return
   const url = new URL(anchor.href)
-  if (url.origin !== window.location.origin || url.pathname === '/') return
+  if (url.origin !== window.location.origin) return
+  if (url.pathname === window.location.pathname && url.search === window.location.search) return
   event.preventDefault()
   void navigate(url).catch((error: unknown) => console.error('Navigation failed; keeping the current page.', error))
 })
+
+function prefetchLink(event: Event) {
+  if (!(event.target instanceof Element)) return
+  const anchor = event.target.closest('a[href]')
+  if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute('download')) return
+  const url = new URL(anchor.href)
+  if (url.origin === window.location.origin) prefetchRoute(url)
+}
+
+document.addEventListener('pointerover', prefetchLink, { passive: true })
+document.addEventListener('focusin', prefetchLink)
 
 window.addEventListener('popstate', () => {
   void navigate(new URL(window.location.href), 'pop').catch((error: unknown) => {

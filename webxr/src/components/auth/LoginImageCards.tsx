@@ -24,6 +24,24 @@ const imageCards = [
   { position: 'bottom-right', src: photo14179353 },
 ]
 
+let imagesReady: Promise<void> | undefined
+
+export function preloadLoginImages() {
+  if (window.matchMedia('(max-width: 520px)').matches) return Promise.resolve()
+  if (imagesReady) return imagesReady
+
+  const visibleCards = window.matchMedia('(max-width: 760px)').matches
+    ? imageCards.filter(({ position }) => !['top-left-center', 'top-right-center', 'bottom-left-center', 'bottom-right-center'].includes(position))
+    : imageCards
+
+  imagesReady = Promise.all(visibleCards.map(({ src }) => {
+    const image = new Image()
+    image.src = src
+    return image.decode().catch(() => undefined)
+  })).then(() => undefined)
+  return imagesReady
+}
+
 export default function LoginImageCards() {
   return (
     <div className="login-image-field" aria-hidden="true">
