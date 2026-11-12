@@ -6,7 +6,7 @@ type RouteModule = { default: ComponentType }
 
 function RouteReady({ children }: { children: ReactNode }) {
   useEffect(() => {
-    document.body.dataset.routeReady = 'true'
+    document.documentElement.dataset.routeReady = 'true'
   }, [])
   return children
 }
@@ -52,7 +52,7 @@ async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: bool
 async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
   if (normalizedPath(url) === '/' && mode === 'initial') {
     activeUrl = `${url.pathname}${url.search}${url.hash}`
-    document.body.dataset.routeReady = 'true'
+    document.documentElement.dataset.routeReady = 'true'
     return
   }
   if (normalizedPath(url) === '/' && mode !== 'initial') {
@@ -97,7 +97,7 @@ function showInitialLoadError() {
   section.append(heading, reload)
   main.append(section)
   document.body.replaceChildren(main)
-  document.body.dataset.routeReady = 'true'
+  document.documentElement.dataset.routeReady = 'true'
 }
 
 document.addEventListener('click', (event) => {
