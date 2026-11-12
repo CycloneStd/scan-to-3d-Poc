@@ -51,7 +51,7 @@ export function clearSession() {
 }
 
 export const authApi = {
-  register: (payload: { email: string; password: string; display_name: string }) => request('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
+  register: (payload: { email: string; password: string }) => request('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
   login: async (email: string, password: string) => saveTokens(await request<TokenPair>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })),
   forgot: (email: string) => request('/auth/password/forgot', { method: 'POST', body: JSON.stringify({ email }) }),
   reset: (token: string, new_password: string) => request('/auth/password/reset', { method: 'POST', body: JSON.stringify({ token, new_password }) }),

@@ -43,13 +43,13 @@ def _send_token_email(user: User, raw_token: str, kind: str) -> None:
     if kind == "verify":
         url = f"{settings.frontend_base_url}/verify-email?token={raw_token}"
         subject = "Verify your Cyclone account"
-        message = f"Hello {user.display_name},\n\nVerify your email address using this link:\n{url}\n\nThis link expires in {settings.verification_token_minutes} minutes. If you did not create this account, ignore this email."
+        message = f"Hello,\n\nVerify your email address using this link:\n{url}\n\nThis link expires in {settings.verification_token_minutes} minutes. If you did not create this account, ignore this email."
     else:
         url = f"{settings.frontend_base_url}/reset-password?token={raw_token}"
         subject = "Reset your Reality to 3D password"
-        message = f"Hello {user.display_name},\n\nChoose a new password using this link:\n{url}\n\nThis link expires in {settings.password_reset_token_minutes} minutes. If you did not request this, ignore this email."
+        message = f"Hello,\n\nChoose a new password using this link:\n{url}\n\nThis link expires in {settings.password_reset_token_minutes} minutes. If you did not request this, ignore this email."
     try:
-        html = password_reset_email(user.display_name, url, settings.password_reset_token_minutes) if kind == "reset" else None
+        html = password_reset_email(url, settings.password_reset_token_minutes) if kind == "reset" else None
         provider_id = send_security_email(user.email, subject, message, html)
         logger.info(
             "Security email accepted by provider: kind=%s user_id=%s provider_id=%s",
@@ -90,7 +90,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         if user.is_active and not user.email_verified_at:
             _resend_verification_for_user(user, db)
         return MessageResponse(message="If the address can be registered, verification instructions will be sent.")
-    user = User(email=email, display_name=payload.display_name, password_hash=hash_password(payload.password))
+    user = User(email=email, password_hash=hash_password(payload.password))
     raw_token = new_opaque_token()
     settings = get_settings()
     db.add(user)
@@ -212,5 +212,5 @@ def change_password(payload: PasswordChangeRequest, db: Session = Depends(get_db
 
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(get_current_user)):
-    return UserResponse(id=user.id, email=user.email, display_name=user.display_name,
+    return UserResponse(id=user.id, email=user.email,
                         email_verified=bool(user.email_verified_at), created_at=user.created_at)

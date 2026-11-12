@@ -73,7 +73,7 @@ export default function SignupPage() {
     if (!form.reportValidity()) return
     setBusy(true); setError('')
     try {
-      await authApi.register({ email: (form.elements.namedItem('email') as HTMLInputElement).value, password: password.value, display_name: (form.elements.namedItem('display_name') as HTMLInputElement).value })
+      await authApi.register({ email: (form.elements.namedItem('email') as HTMLInputElement).value, password: password.value })
       setSubmitted(true)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Account creation failed.') }
     finally { setBusy(false) }
@@ -108,7 +108,6 @@ export default function SignupPage() {
             )
           }}
         >
-          <SignupField id="display_name" label="Your name" type="text" autoComplete="name" />
           <SignupField id="email" label="Email address" type="email" autoComplete="email" />
           <SignupField id="password" label="Password" type="password" autoComplete="new-password" />
           <SignupField id="confirm-password" label="Confirm password" type="password" autoComplete="new-password" />
