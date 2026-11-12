@@ -1,5 +1,6 @@
 """Install the pipeline's Blender runtime from the official pinned Linux archive."""
 import hashlib
+import posixpath
 import tarfile
 import tempfile
 import urllib.request
@@ -45,6 +46,24 @@ def _extract(payload) -> None:
             target = (DESTINATION / relative).resolve()
             if not target.is_relative_to(DESTINATION.resolve()):
                 raise SystemExit("Unsafe path in Blender archive")
+            if member.islnk():
+                # Hard-link names are archive-root-relative. We strip the
+                # archive's outer directory from member.name, so strip it
+                # from linkname too before extracting into DESTINATION.
+                link_target = member.linkname
+                if link_target.startswith(prefix):
+                    link_target = link_target[len(prefix):]
+                if not link_target or link_target.startswith("/") or ".." in link_target.split("/"):
+                    raise SystemExit(f"Unsafe hard link in Blender archive: {member.name}")
+                member.linkname = link_target
+            elif member.issym():
+                # Symlink names are relative to their containing directory.
+                # Ensure they resolve inside the extraction root.
+                resolved_link = posixpath.normpath(
+                    posixpath.join(posixpath.dirname(relative), member.linkname)
+                )
+                if member.linkname.startswith("/") or resolved_link == ".." or resolved_link.startswith("../"):
+                    raise SystemExit(f"Unsafe symbolic link in Blender archive: {member.name}")
             member.name = relative
             archive.extract(member, DESTINATION, filter="data")
 
