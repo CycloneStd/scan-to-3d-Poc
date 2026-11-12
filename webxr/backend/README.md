@@ -54,12 +54,19 @@ WEBXR_REDIS_URL=${{Redis.REDIS_URL}}
 WEBXR_JWT_SECRET=<unique random secret, at least 32 characters>
 WEBXR_FRONTEND_BASE_URL=https://<web-domain>
 WEBXR_CORS_ORIGINS=https://<web-domain>,http://localhost:5173
-WEBXR_SMTP_HOST=<TLS SMTP host>
-WEBXR_SMTP_PORT=587
-WEBXR_SMTP_USERNAME=<SMTP username>
-WEBXR_SMTP_PASSWORD=<SMTP password>
-WEBXR_SMTP_FROM_EMAIL=<verified sender>
-WEBXR_SMTP_STARTTLS=true
+# Railway Free, Trial, and Hobby: use the HTTPS API provider below.
+WEBXR_EMAIL_PROVIDER=resend
+WEBXR_EMAIL_FROM_EMAIL=<verified sender>
+WEBXR_EMAIL_FROM_NAME=Cyclone Scan
+WEBXR_RESEND_API_KEY=<Resend API key>
+# For Pro plans with SMTP access, use provider=smtp and set WEBXR_SMTP_* instead.
+# WEBXR_EMAIL_PROVIDER=smtp
+# WEBXR_SMTP_HOST=<TLS SMTP host>
+# WEBXR_SMTP_PORT=587
+# WEBXR_SMTP_USERNAME=<SMTP username>
+# WEBXR_SMTP_PASSWORD=<SMTP password>
+# WEBXR_SMTP_FROM_EMAIL=<verified sender>
+# WEBXR_SMTP_STARTTLS=true
 WEBXR_STORAGE_BACKEND=s3
 WEBXR_STORAGE_S3_BUCKET=<private bucket>
 WEBXR_STORAGE_S3_REGION=<region>
@@ -71,6 +78,8 @@ WEBXR_PIPELINE_CONFIG_TEMPLATE=/repo/configs/house.yaml
 WEBXR_PIPELINE_WORK_ROOT=/tmp/scan3d-pipeline
 WEBXR_PIPELINE_TRACK=mesh
 ```
+
+For Resend, create an API key and verify a sending domain in Resend, then use an address on that domain for `WEBXR_EMAIL_FROM_EMAIL`. Railway Free, Trial, and Hobby plans block outbound SMTP; transactional email HTTPS APIs remain available.
 
 Use Railway's actual Postgres/Redis variable references. For S3, provide the same bucket credentials to the API and worker and configure bucket CORS for the web domain so browsers can use signed uploads/downloads. The CORS example includes the local Vite origin so you can develop the frontend locally against Railway. Use a separate Railway environment and data services for development if you want to keep test data separate from production. Set the web service's build variable `VITE_API_BASE_URL=https://<api-domain>/api/v1`. Generate domains for the API and web services; keep the worker private.
 
