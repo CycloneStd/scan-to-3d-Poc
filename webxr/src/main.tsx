@@ -1,3 +1,6 @@
+import './styles/components/input.css'
+import './styles/login.css'
+
 async function renderRoute() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
   if (pathname === '/') {
