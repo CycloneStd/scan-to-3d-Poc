@@ -1,0 +1,13 @@
+name: scan3d-worker
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - colmap=4.2
+  - ffmpeg
+  - blender>=4
+  - numpy
+  - opencv
+  - pip
+  - pip:
+      - google-colab-cli

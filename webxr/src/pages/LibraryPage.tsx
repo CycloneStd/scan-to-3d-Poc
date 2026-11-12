@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent } from 'react'
 import cycloneMark from '../assets/cyclone-mark.png'
 import arcticIcebergImage from '../assets/arctic-iceberg-scan.webp'
 import AppHeader from '../components/library/AppHeader'
@@ -33,7 +33,6 @@ const initialScans: ScanCard[] = [
   { id: 5, modelKey: 'mdl-4q6t8a3m', name: 'Atrium', type: 'Room', date: 'Nov 3', status: 'Ready', source: 'Video, 2:48', sourceType: 'video', processingTime: '5 min 40 s', quality: 'Balanced' },
   { id: 6, modelKey: 'mdl-8c1r5y2p', name: 'Ceramic Vase', type: 'Object', date: 'Oct 29', status: 'Ready', source: '36 photos', sourceType: 'photos', processingTime: '3 min 02 s', quality: 'Fast' },
 ]
-
 function getScanTimestamp(dateLabel: string) {
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -58,23 +57,71 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [exportFormat, setExportFormat] = useState<'GLB' | 'OBJ' | 'PLY'>('GLB')
   const [scans, setScans] = useState(initialScans)
+  const [scanFiles, setScanFiles] = useState<File[]>([])
+  const [uploadError, setUploadError] = useState('')
+  const [scanProgress, setScanProgress] = useState<number | null>(null)
+  const [pendingScanDetails, setPendingScanDetails] = useState<{ name: string; type: ScanCard['type'] } | null>(null)
+  const [scanType, setScanType] = useState('')
+  const [isScanDrawerOpen, setIsScanDrawerOpen] = useState(() => window.location.pathname === '/scan')
   const [sourceImageIndex, setSourceImageIndex] = useState(0)
   const [selectedScan, setSelectedScan] = useState<ScanCard | null>(() => {
     const modelKey = window.location.pathname.split('/').filter(Boolean).at(-1)
     return initialScans.find((scan) => scan.modelKey === modelKey) ?? null
   })
   const closeModalButtonRef = useRef<HTMLButtonElement>(null)
+  const closeScanDrawerButtonRef = useRef<HTMLButtonElement>(null)
+  const scanFileInputRef = useRef<HTMLInputElement>(null)
+  const uploadKind = scanFiles[0]?.type.startsWith('video/') ? 'video' : scanFiles.length ? 'photos' : null
+  useEffect(() => {
+    if (window.location.pathname === '/scan') window.history.replaceState(null, '', '/library')
+  }, [])
 
   useEffect(() => {
-    if (!selectedScan) return
+    if (scanProgress === null || scanProgress >= 100) return
+    const timer = window.setInterval(() => setScanProgress((progress) => progress === null ? null : Math.min(100, progress + 1)), 300)
+    return () => window.clearInterval(timer)
+  }, [scanProgress === null || scanProgress >= 100])
+
+  useEffect(() => {
+    if (scanProgress !== 100) return
+    const modelKey = `mdl-${Date.now().toString(36)}`
+    const uploadedVideo = scanFiles.find((file) => file.type.startsWith('video/'))
+    const result: ScanCard = {
+      id: Date.now(),
+      modelKey,
+      name: pendingScanDetails?.name || 'New scan',
+      type: pendingScanDetails?.type || 'Object',
+      date: 'Today',
+      status: 'Ready',
+      source: uploadedVideo ? `Video · ${uploadedVideo.name}` : `${scanFiles.length} photos`,
+      sourceType: uploadedVideo ? 'video' : 'photos',
+      processingTime: 'Just now',
+      quality: 'Balanced',
+    }
+    setScans((items) => [result, ...items])
+    setIsScanDrawerOpen(false)
+    window.history.replaceState({ modelKey }, '', `/model/${modelKey}`)
+    setSelectedScan(result)
+    setScanProgress(null)
+  }, [scanProgress])
+
+  useEffect(() => {
+    if (!selectedScan && !isScanDrawerOpen) return
 
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    closeModalButtonRef.current?.focus()
+    if (selectedScan) closeModalButtonRef.current?.focus()
+    if (isScanDrawerOpen) closeScanDrawerButtonRef.current?.focus()
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeModelWindow()
+      if (event.key === 'Escape') {
+        if (isScanDrawerOpen) closeScanDrawer()
+        else closeModelWindow()
+      }
     }
-    const closeOnHistoryBack = () => setSelectedScan(null)
+    const closeOnHistoryBack = () => {
+      setSelectedScan(null)
+      setIsScanDrawerOpen(false)
+    }
     window.addEventListener('keydown', closeOnEscape)
     window.addEventListener('popstate', closeOnHistoryBack)
     return () => {
@@ -82,7 +129,7 @@ export default function LibraryPage() {
       window.removeEventListener('keydown', closeOnEscape)
       window.removeEventListener('popstate', closeOnHistoryBack)
     }
-  }, [selectedScan])
+  }, [selectedScan, isScanDrawerOpen])
 
   useEffect(() => {
     setSourceImageIndex(0)
@@ -114,6 +161,38 @@ export default function LibraryPage() {
     setSelectedScan(null)
   }
 
+  function closeScanDrawer() {
+    if (window.location.pathname === '/scan') {
+      window.history.replaceState(null, '', '/library')
+    }
+    setIsScanDrawerOpen(false)
+  }
+
+  function openScanDrawer(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault()
+    if (window.location.pathname !== '/library') window.history.replaceState(null, '', '/library')
+    setIsScanDrawerOpen(true)
+  }
+
+  function addScanFiles(files: File[]) {
+    const kind = files[0]?.type.startsWith('video/') ? 'video' : 'photos'
+    const validFiles = files.filter((file) => kind === 'video' ? file.type.startsWith('video/') : ['image/jpeg', 'image/png'].includes(file.type))
+    if (validFiles.length !== files.length) {
+      setUploadError('Use JPEG or PNG photos, or choose a video. Other image formats are not supported by the pipeline.')
+      return
+    }
+    if (scanFiles.length && uploadKind !== kind) {
+      setUploadError('Photos and video must be uploaded in separate scans. Remove the current files to switch input type.')
+      return
+    }
+    if (kind === 'video' && (scanFiles.length || validFiles.length > 1)) {
+      setUploadError('Choose one video per scan. Remove the current files before choosing another video.')
+      return
+    }
+    setUploadError('')
+    setScanFiles((current) => [...current, ...validFiles])
+  }
+
   return (
     <main className="library-shell">
       <AppHeader page="library" />
@@ -123,7 +202,8 @@ export default function LibraryPage() {
           <h1>My library</h1>
           <a
             className="library-new-scan mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent login-action"
-            href="/scan"
+            href="/library"
+            onClick={openScanDrawer}
             data-mode="solid"
             data-size="md"
             data-variant="primary"
@@ -278,10 +358,10 @@ export default function LibraryPage() {
                       <span className="model-detail-ready">Ready</span>
                     </div>
                     <dl className="model-detail-list">
-                      <div><dt>Type</dt><dd>Object</dd></div>
-                      <div><dt>Source</dt><dd>64 photos</dd></div>
-                      <div><dt>Captured</dt><dd>Today</dd></div>
-                      <div><dt>Processing time</dt><dd>4 min 12 s</dd></div>
+                      <div><dt>Type</dt><dd>{selectedScan.type}</dd></div>
+                      <div><dt>Source</dt><dd>{selectedScan.source}</dd></div>
+                      <div><dt>Captured</dt><dd>{selectedScan.date}</dd></div>
+                      <div><dt>Processing time</dt><dd>{selectedScan.processingTime}</dd></div>
                     </dl>
                   </section>
 
@@ -337,6 +417,78 @@ export default function LibraryPage() {
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
             </button>
           </div>
+        </div>
+      )}
+
+      {isScanDrawerOpen && (
+        <div className="scan-drawer-backdrop" onClick={(event) => event.target === event.currentTarget && closeScanDrawer()}>
+          <aside className="scan-drawer" role="dialog" aria-modal="true" aria-labelledby="scan-drawer-title">
+            <div className="scan-drawer-glass" aria-hidden="true" />
+            <div className="scan-drawer-content">
+              <button ref={closeScanDrawerButtonRef} className="scan-drawer-close" type="button" aria-label="Close new scan panel" onClick={closeScanDrawer}>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+              </button>
+              <div className="scan-drawer-header">
+                <h2 id="scan-drawer-title">New Scan</h2>
+              </div>
+              <form className="scan-drawer-form" aria-busy={scanProgress !== null} onSubmit={(event) => { event.preventDefault(); const formData = new FormData(event.currentTarget); setPendingScanDetails({ name: String(formData.get('name') || 'New scan'), type: String(formData.get('type') || 'Object') as ScanCard['type'] }); setScanProgress(0) }}>
+                <fieldset className="scan-drawer-fields" disabled={scanProgress !== null}>
+                <section className="scan-drawer-section">
+                  <h3>Images</h3>
+                  <button className="scan-upload-target" type="button" onClick={() => scanFileInputRef.current?.click()}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5" /></svg>
+                    <strong>{uploadKind === 'video' ? 'Video selected' : uploadKind === 'photos' ? 'Add photos' : 'Add photos or video'}</strong>
+                    <span>{uploadKind === 'video' ? 'Remove it to switch input type' : 'JPEG or PNG photos, or one video'}</span>
+                  </button>
+                  <input
+                    ref={scanFileInputRef}
+                    className="scan-upload-input"
+                    type="file"
+                    accept={uploadKind === 'video' ? 'video/*' : uploadKind === 'photos' ? 'image/jpeg,image/png' : 'image/jpeg,image/png,video/*'}
+                    multiple={uploadKind !== 'video'}
+                    onChange={(event) => { addScanFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }}
+                  />
+                  {uploadError && <p className="scan-upload-error" role="alert">{uploadError}</p>}
+                  {scanFiles.length > 0 && (
+                    <div className="scan-upload-count" aria-live="polite">
+                      {scanFiles.length} {uploadKind === 'video' ? (scanFiles.length === 1 ? 'video selected' : 'videos selected') : (scanFiles.length === 1 ? 'photo selected' : 'photos selected')}
+                    </div>
+                  )}
+                </section>
+
+                <section className="scan-drawer-section">
+                  <h3>Scan details</h3>
+                  <div className="scan-login-input m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl" data-size="lg">
+                    <span className="m-input__target" aria-hidden="true" onClick={() => document.getElementById('scan-name')?.focus()} />
+                    <span className="m-input__field"><span className="m-input__control"><input className="mirror-input" id="scan-name" name="name" placeholder="Scan name" required /></span><label className="m-input__label" htmlFor="scan-name">Scan name</label></span>
+                  </div>
+                  <div className={`scan-login-input scan-type-input m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl${scanType ? ' has-value' : ''}`} data-size="lg" data-simple="true">
+                    <span className="m-input__target" aria-hidden="true" onClick={() => document.getElementById('scan-type')?.focus()} />
+                    <span className="m-input__field"><span className="m-input__control"><select className="scan-drawer-select" id="scan-type" name="type" value={scanType} onChange={(event) => setScanType(event.target.value)} aria-label="Type"><option value="" disabled>Type</option><option>Object</option><option>Room</option><option>Building</option></select></span></span>
+                    <svg className="scan-type-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 7.5 4.5 4.5 4.5-4.5" /></svg>
+                  </div>
+                  <div className="scan-login-input m-input relative box-border flex w-full cursor-text flex-row items-center justify-between select-none transition-all duration-100 ease-linear will-change-contents h-14 gap-1.5 rounded-component-xl" data-size="lg">
+                    <span className="m-input__target" aria-hidden="true" onClick={() => document.getElementById('scan-object')?.focus()} />
+                    <span className="m-input__field"><span className="m-input__control"><input className="mirror-input" id="scan-object" name="object" placeholder="What are you scanning?" /></span><label className="m-input__label" htmlFor="scan-object">What are you scanning?</label></span>
+                  </div>
+                  <div className="scan-description-shell m-input relative box-border w-full rounded-component-xl" data-size="lg">
+                    <textarea className="scan-description-input" id="scan-description" name="description" placeholder=" " aria-label="Description" rows={3} />
+                    <label className="scan-description-label" htmlFor="scan-description">Description</label>
+                  </div>
+                </section>
+                <button className="scan-drawer-submit" type="submit">Start Scan</button>
+                </fieldset>
+              </form>
+            </div>
+          </aside>
+          {scanProgress !== null && scanProgress < 100 && (
+            <div className="scan-progress-zone" role="status" aria-live="polite">
+              <div className="scan-progress">
+                <div className="scan-progress-label"><strong>{scanProgress}%</strong></div>
+                <div className="scan-progress-track" role="progressbar" aria-label="Scan progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={scanProgress}><span style={{ width: `${scanProgress}%` }} /></div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </main>

@@ -16,7 +16,7 @@ export default function AppHeader({ page }: AppHeaderProps) {
         </nav>
         <div className="library-header-actions">
           {page === 'library' ? (
-            <a className="library-logout library-filter-pill" href="/login">
+          <a className="library-logout library-filter-pill" href="/login" onClick={(event) => { event.preventDefault(); void authApi.logout().finally(() => window.location.assign('/login')) }}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9" /></svg>
               Logout
             </a>
@@ -39,3 +39,5 @@ export default function AppHeader({ page }: AppHeaderProps) {
     </header>
   )
 }
+import { authApi } from '../../services/auth'
+

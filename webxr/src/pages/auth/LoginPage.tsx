@@ -1,4 +1,6 @@
 import type { FormEvent } from 'react'
+import { useState } from 'react'
+import { authApi } from '../../services/auth'
 import LoginImageCards from '../../components/auth/LoginImageCards'
 import cycloneWordmark from '../../assets/cyclone-wordmark.png'
 import '../../styles/components/input.css'
@@ -96,15 +98,26 @@ function LoginField({
 }
 
 export default function LoginPage() {
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    window.location.assign('/library')
+    const form = event.currentTarget
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value
+    const password = (form.elements.namedItem('password') as HTMLInputElement).value
+    setBusy(true); setError('')
+    try {
+      await authApi.login(email, password)
+      const next = new URLSearchParams(window.location.search).get('next')
+      window.location.assign(next?.startsWith('/') && !next.startsWith('//') ? next : '/library')
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Sign in failed.') }
+    finally { setBusy(false) }
   }
 
   return (
     <main className="login-shell">
       <LoginImageCards />
-      <a className="login-brand" href="/login" aria-label="Cyclone login">
+      <a className="login-brand" href="/" aria-label="Cyclone home">
         <img src={cycloneWordmark} alt="Cyclone" />
       </a>
       <section className="login-content" aria-labelledby="login-title">
@@ -135,8 +148,9 @@ export default function LoginPage() {
             data-size="lg"
             data-variant="primary"
           >
-            Continue
+            {busy ? 'Signing in…' : 'Continue'}
           </button>
+          {error && <p role="alert" className="login-account-prompt">{error}</p>}
         </form>
         <p className="login-account-prompt">
           Don’t have an account? <a href="/signup">Create account</a>

@@ -38,7 +38,7 @@ The landing page stays in HTML. Product pages are React components in `src/pages
 4. Processing: reconstruction stages and progress.
 5. Result viewer: 3D inspection and exports.
 
-Authentication, uploads, processing jobs, and managed scan storage are not connected to the Python pipeline yet. Vite exposes `../web/assets` as its public directory for generated reconstruction assets.
+The independent FastAPI backend, authentication flows, scan/job APIs, worker, and storage adapters are scaffolded in [`backend/`](backend/README.md). The Vite/React frontend is not integrated with it yet. Vite exposes `../web/assets` as its public directory for generated reconstruction assets.
 
 ## Local development
 

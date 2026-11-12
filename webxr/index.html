@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="./src/styles/components.css" />
     <link rel="stylesheet" href="./src/styles/foundation.css" />
     <link rel="stylesheet" href="./src/styles/landing.css" />
+    <style>body:not([data-route-ready]) { visibility: hidden; }</style>
 </head>
   <body class="bg-surface-base text-surface">
     <div id="top">
@@ -31,15 +32,15 @@
                         class="ui-header-nav auth-actions-card border-surface backdrop-blur-surface relative flex h-17 items-center gap-1 overflow-hidden rounded-3xl border-2 p-1 lg:h-15 lg:rounded-[1.375rem] pointer-events-auto flex"
                       >
                         <div class="translucent-glass"></div>
-                        <button
+                        <a
                           class="mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent bg-transparent text-primary-on-subtle hover:bg-primary-subtle data-[pressed=true]:bg-primary-subtle-hover signup-action"
-                          type="button"
+                          href="/signup"
                           data-mode="ghost"
                           data-size="md"
                           data-variant="primary"
                         >
                           <span class="signup-label">Signup</span>
-                        </button>
+                        </a>
                         <a
                           class="mirror-button m-button relative box-border inline-flex items-center justify-center border-2 outline-4 outline-offset-0 outline-transparent whitespace-nowrap no-underline transition-all duration-100 ease-linear focus-visible:focus-ring will-change-contents h-12 gap-1.5 type-component-lg rounded-component-lg border-transparent bg-transparent text-primary-on-subtle hover:bg-primary-subtle data-[pressed=true]:bg-primary-subtle-hover login-action"
                           href="/login"
@@ -111,12 +112,12 @@
                   <div class="mobile-auth-menu" id="mobile-auth-menu" role="dialog" aria-label="Account menu" aria-modal="true" hidden>
                     <nav class="mobile-auth-menu__panel" aria-label="Account">
                       <div class="mobile-auth-menu__handle" aria-hidden="true"></div>
-                      <button class="mobile-auth-menu__item" type="button">
+                      <a class="mobile-auth-menu__item" href="/signup">
                         <span class="mobile-auth-menu__icon" aria-hidden="true">
                           <svg class="lucide lucide-user-round-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 11.873-7"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
                         </span>
                         <span class="signup-label">Signup</span>
-                      </button>
+                      </a>
                       <a class="mobile-auth-menu__item" href="/login">
                         <span class="mobile-auth-menu__icon" aria-hidden="true">
                           <svg class="lucide lucide-log-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>

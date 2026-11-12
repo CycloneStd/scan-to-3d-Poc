@@ -1,5 +1,8 @@
 import type { FormEvent } from 'react'
+import { useState } from 'react'
+import { authApi } from '../../services/auth'
 import LoginImageCards from '../../components/auth/LoginImageCards'
+import cycloneWordmark from '../../assets/cyclone-wordmark.png'
 import '../../styles/components/input.css'
 import '../../styles/login.css'
 
@@ -17,7 +20,7 @@ const submitButtonClasses = [
 type SignupFieldProps = {
   id: string
   label: string
-  type: 'email' | 'password'
+  type: 'email' | 'password' | 'text'
   autoComplete: string
 }
 
@@ -45,7 +48,7 @@ function SignupField({ id, label, type, autoComplete }: SignupFieldProps) {
             type={type}
             autoComplete={autoComplete}
             placeholder={label}
-            minLength={type === 'password' ? 8 : undefined}
+            minLength={type === 'password' ? 12 : undefined}
             required
           />
         </span>
@@ -56,7 +59,10 @@ function SignupField({ id, label, type, autoComplete }: SignupFieldProps) {
 }
 
 export default function SignupPage() {
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
     const password = form.elements.namedItem('password') as HTMLInputElement
@@ -64,13 +70,26 @@ export default function SignupPage() {
     confirmation.setCustomValidity(
       confirmation.value === password.value ? '' : 'Passwords must match.',
     )
-    form.reportValidity()
+    if (!form.reportValidity()) return
+    setBusy(true); setError('')
+    try {
+      await authApi.register({ email: (form.elements.namedItem('email') as HTMLInputElement).value, password: password.value, display_name: (form.elements.namedItem('display_name') as HTMLInputElement).value })
+      setSubmitted(true)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Account creation failed.') }
+    finally { setBusy(false) }
   }
 
   return (
     <main className="login-shell signup-shell">
       <LoginImageCards />
+      <a className="login-brand" href="/" aria-label="Cyclone home">
+        <img src={cycloneWordmark} alt="Cyclone" />
+      </a>
       <section className="login-content" aria-labelledby="signup-title">
+        {submitted ? <header className="login-heading">
+          <h1 id="signup-title">Check your email</h1>
+          <p>We’ve sent a verification link to your email address. Open it to verify your account, then you can continue to your library.</p>
+        </header> : <>
         <header className="login-heading">
           <h1 id="signup-title">Create your account</h1>
           <p>Sign up to get started with your scans.</p>
@@ -89,6 +108,7 @@ export default function SignupPage() {
             )
           }}
         >
+          <SignupField id="display_name" label="Your name" type="text" autoComplete="name" />
           <SignupField id="email" label="Email address" type="email" autoComplete="email" />
           <SignupField id="password" label="Password" type="password" autoComplete="new-password" />
           <SignupField id="confirm-password" label="Confirm password" type="password" autoComplete="new-password" />
@@ -99,12 +119,14 @@ export default function SignupPage() {
             data-size="lg"
             data-variant="primary"
           >
-            Create account
+            {busy ? 'Creating account…' : 'Create account'}
           </button>
+          {error && <p role="alert" className="login-account-prompt">{error}</p>}
         </form>
-        <p className="login-account-prompt">
+        </>}
+        {!submitted && <p className="login-account-prompt">
           Already have an account? <a href="/login">Log in</a>
-        </p>
+        </p>}
       </section>
     </main>
   )
