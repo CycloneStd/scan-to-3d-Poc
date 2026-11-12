@@ -94,14 +94,14 @@
       .hero-subtitle {
         max-width: 38rem;
         margin: 0;
-        font-family: Mirage;
+        font-family: "Mirage", system-ui, sans-serif;
         font-size: 24px;
         font-weight: 450;
         line-height: 34px;
         color: #f1f1f1;
       }
       .signup-label {
-        font-family: Mirage;
+        font-family: "Mirage", system-ui, sans-serif;
         font-weight: 450;
         line-height: 34px;
         color: #000;

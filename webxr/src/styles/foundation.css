@@ -5356,17 +5356,17 @@ body {
   --app-dimension-surface-radius-lg: 2.25rem;
   --app-dimension-surface-radius-lg-inset: 1.75rem;
   --app-dimension-surface-border: 2px;
-  --app-font-family-text: "Mirage";
-  --app-font-family-symbol: "Symbols";
-  --app-font-family-number: "Index";
-  --app-font-family-surface-display: "Mirage";
-  --app-font-family-surface-title: "Mirage";
-  --app-font-family-surface-callout: "Mirage";
-  --app-font-family-surface-subtitle: "Mirage";
-  --app-font-family-surface-body: "Mirage";
-  --app-font-family-surface-caption: "Mirage";
-  --app-font-family-surface-footnote: "Mirage";
-  --app-font-family-surface-code: "Index";
+  --app-font-family-text: "Mirage", system-ui, sans-serif;
+  --app-font-family-symbol: "Symbols", system-ui, sans-serif;
+  --app-font-family-number: "Index", system-ui, sans-serif;
+  --app-font-family-surface-display: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-title: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-callout: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-subtitle: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-body: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-caption: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-footnote: "Mirage", system-ui, sans-serif;
+  --app-font-family-surface-code: "Index", system-ui, sans-serif;
   --app-font-weight-text: 450;
   --app-font-weight-text-alt: 400;
   --app-font-weight-text-strong: 500;
@@ -5703,12 +5703,12 @@ body {
   --app-color-shadow-strong: oklch(0% 0 none/.24);
 }
 [data-theme="mono"][data-theme][data-theme] {
-  --app-font-family-surface-title: "Index";
-  --app-font-family-surface-callout: "Index";
-  --app-font-family-surface-body: "Index";
-  --app-font-family-surface-caption: "Index";
-  --app-font-family-surface-footnote: "Index";
-  --app-font-family-text: "Index";
+  --app-font-family-surface-title: "Index", system-ui, sans-serif;
+  --app-font-family-surface-callout: "Index", system-ui, sans-serif;
+  --app-font-family-surface-body: "Index", system-ui, sans-serif;
+  --app-font-family-surface-caption: "Index", system-ui, sans-serif;
+  --app-font-family-surface-footnote: "Index", system-ui, sans-serif;
+  --app-font-family-text: "Index", system-ui, sans-serif;
   --app-font-weight-surface-callout: 500;
   --app-font-weight-surface-callout-strong: 700;
   --app-font-weight-surface-body: 500;
@@ -5852,5 +5852,5 @@ body {
   backdrop-filter: blur(var(--m-button-blur));
 }
 .error-page {
-  --app-font-family-surface-display: "Index", "monospace";
+  --app-font-family-surface-display: "Index", system-ui, sans-serif;
 }

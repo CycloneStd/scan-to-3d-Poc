@@ -2,8 +2,9 @@
 
 ## Login page photographs
 
-The decorative login cards load photographs from Pexels' image CDN. Pexels lists
-these images as free to use under its [license](https://www.pexels.com/license/):
+The decorative login cards use locally stored WebP copies of photographs from
+Pexels under its [license](https://www.pexels.com/license/). The optimized files
+are in `src/assets/login-cards/`:
 
 - Sneaker — Alok Das: [photo](https://www.pexels.com/photo/hands-holding-a-pair-of-black-sneakers-19845610/)
 - Sculpture studio — cottonbro studio: [photo](https://www.pexels.com/photo/white-concrete-statue-near-brown-wooden-chairs-3778080/)
