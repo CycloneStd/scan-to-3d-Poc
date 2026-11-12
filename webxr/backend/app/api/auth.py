@@ -63,11 +63,32 @@ def _send_token_email(user: User, raw_token: str, kind: str) -> None:
         ) from exc
 
 
+def _resend_verification_for_user(user: User, db: Session) -> None:
+    raw = new_opaque_token()
+    settings = get_settings()
+    db.execute(update(AuthToken).where(
+        AuthToken.user_id == user.id,
+        AuthToken.kind == "verify",
+        AuthToken.consumed_at.is_(None),
+    ).values(consumed_at=utcnow()))
+    db.add(AuthToken(
+        user_id=user.id,
+        kind="verify",
+        token_hash=hash_token(raw),
+        expires_at=utcnow() + timedelta(minutes=settings.verification_token_minutes),
+    ))
+    db.commit()
+    _send_token_email(user, raw, "verify")
+
+
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(rate_limit("register", 5))])
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     email = str(payload.email).lower()
-    if db.scalar(select(User.id).where(User.email == email)):
+    user = db.scalar(select(User).where(User.email == email).with_for_update())
+    if user:
+        if user.is_active and not user.email_verified_at:
+            _resend_verification_for_user(user, db)
         return MessageResponse(message="If the address can be registered, verification instructions will be sent.")
     user = User(email=email, display_name=payload.display_name, password_hash=hash_password(payload.password))
     raw_token = new_opaque_token()
@@ -106,13 +127,7 @@ def verify_email(payload: TokenRequest, db: Session = Depends(get_db)):
 def resend_verification(payload: EmailRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
     if user and user.is_active and not user.email_verified_at:
-        raw = new_opaque_token()
-        settings = get_settings()
-        db.execute(update(AuthToken).where(AuthToken.user_id == user.id, AuthToken.kind == "verify", AuthToken.consumed_at.is_(None)).values(consumed_at=utcnow()))
-        db.add(AuthToken(user_id=user.id, kind="verify", token_hash=hash_token(raw),
-                         expires_at=utcnow() + timedelta(minutes=settings.verification_token_minutes)))
-        db.commit()
-        _send_token_email(user, raw, "verify")
+        _resend_verification_for_user(user, db)
     return MessageResponse(message="If the account needs verification, a new link has been sent.")
 
 
