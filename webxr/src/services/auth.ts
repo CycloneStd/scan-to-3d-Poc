@@ -5,6 +5,13 @@ const REFRESH_KEY = 'webxr.refresh'
 type TokenPair = { access_token: string; refresh_token: string; expires_in: number }
 type ApiError = { detail?: string }
 
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}, authenticated = false): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Content-Type', 'application/json')
@@ -23,7 +30,7 @@ async function request<T>(path: string, init: RequestInit = {}, authenticated = 
   }
   if (!response.ok) {
     const error = await response.json().catch(() => ({})) as ApiError
-    throw new Error(error.detail || 'The request could not be completed.')
+    throw new ApiRequestError(error.detail || 'The request could not be completed.', response.status)
   }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>
 }
