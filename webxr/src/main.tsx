@@ -1,9 +1,18 @@
 import './styles/components/input.css'
 import './styles/login.css'
+import { StrictMode, createElement, useEffect } from 'react'
+
+function RouteReady({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    document.body.dataset.routeReady = 'true'
+  }, [])
+  return children
+}
 
 async function renderRoute() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
   if (pathname === '/') {
+    document.body.dataset.routeReady = 'true'
     return
   }
   const isModelPage = /^\/model\/[^/]+$/.test(pathname)
@@ -40,15 +49,18 @@ async function renderRoute() {
       ? import('./pages/LibraryPage')
       : import('./pages/NotFoundPage')
 
-  const [{ StrictMode, createElement }, { createRoot }, pageModule] = await Promise.all([
-    import('react'),
+  const [{ createRoot }, pageModule] = await Promise.all([
     import('react-dom/client'),
     pagePromise,
   ])
   const rootElement = document.getElementById('app-root')
   if (!rootElement) throw new Error('Application root element was not found.')
 
-  createRoot(rootElement).render(createElement(StrictMode, null, createElement(pageModule.default)))
+  createRoot(rootElement).render(createElement(
+    StrictMode,
+    null,
+    createElement(RouteReady, null, createElement(pageModule.default)),
+  ))
 }
 
 void renderRoute()
@@ -68,7 +80,4 @@ void renderRoute()
     section.append(reload)
     main.append(section)
     document.body.replaceChildren(main)
-  })
-  .finally(() => {
-    document.body.dataset.routeReady = 'true'
   })
