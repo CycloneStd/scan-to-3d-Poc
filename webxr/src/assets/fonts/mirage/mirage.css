@@ -2,5 +2,5 @@
   font-family: "Mirage";
   src: url("mirage-variable-trial.woff2") format("woff2");
   font-weight: 100 900;
-  font-display: block;
+  font-display: swap;
 }

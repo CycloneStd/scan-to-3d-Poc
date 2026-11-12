@@ -23,7 +23,8 @@ export default function LoginImageCards() {
           <img
             src={`https://images.pexels.com/photos/${photoId}/pexels-photo-${photoId}.jpeg?auto=compress&cs=tinysrgb&w=480&q=75`}
             alt=""
-            loading="eager"
+            loading="lazy"
+            fetchPriority="low"
             draggable="false"
           />
         </figure>

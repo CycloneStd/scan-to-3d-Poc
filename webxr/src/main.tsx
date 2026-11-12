@@ -59,7 +59,10 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
     window.location.assign(url.href)
     return
   }
-  const loaded = await loadRoute(url)
+  const [loaded, reactDom] = await Promise.all([
+    loadRoute(url),
+    import('react-dom/client'),
+  ])
   const destination = loaded.destination
   const path = normalizedPath(destination)
 
@@ -68,8 +71,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
     const root = document.createElement('div')
     root.id = 'app-root'
     document.body.replaceChildren(root)
-    const { createRoot } = await import('react-dom/client')
-    appRoot = createRoot(root)
+    appRoot = reactDom.createRoot(root)
   }
 
   document.body.className = `${loaded.protected || loaded.notFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`

@@ -20,7 +20,7 @@
 }
 @layer light,dark;
 body {
-  font-family: var(--app-font-family-surface-body);
+  font-family: var(--app-font-family-surface-body), system-ui, sans-serif;
   font-weight: var(--app-font-weight-surface-body);
   font-size: var(--app-font-size-surface-body-md);
 }
