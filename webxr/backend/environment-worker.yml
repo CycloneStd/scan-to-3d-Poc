@@ -2,7 +2,7 @@ name: scan3d-worker
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
+  - python=3.12
   - colmap=4.2
   - ffmpeg
   - numpy
