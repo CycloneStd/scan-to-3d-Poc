@@ -51,8 +51,12 @@ def _send_token_email(user: User, raw_token: str, kind: str) -> None:
     try:
         html = password_reset_email(user.display_name, url, settings.password_reset_token_minutes) if kind == "reset" else None
         send_security_email(user.email, subject, message, html)
-    except Exception:
+    except Exception as exc:
         logger.exception("Security email delivery failed for user id %s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email delivery is temporarily unavailable. Please try again later.",
+        ) from exc
 
 
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED,
