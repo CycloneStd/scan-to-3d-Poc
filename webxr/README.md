@@ -57,33 +57,23 @@ npm run preview
 `dist/` is generated output and is ignored by Git. Recreate it with `npm run build` when needed.
 ## Run the web prototype locally
 
-Run the frontend and API natively on Windows; keep PostgreSQL, Redis, object storage, and the heavy scan worker on Railway. This avoids local Docker and the COLMAP/Blender worker image while still exercising the local API against the remote queue and storage.
+Run the frontend locally and use the deployed Railway API and worker. PostgreSQL, Redis, object storage, and processing stay in Railway; no local Docker or API environment is required.
 
 1. Deploy the Railway API and worker, and provision Railway PostgreSQL, Redis, and S3-compatible storage, using [backend/README.md](backend/README.md).
 2. Add `http://localhost:5173` to the Railway API's `WEBXR_CORS_ORIGINS`. Keep the deployed website origin too. Use a separate Railway environment and data services for development so local testing doesn't alter production data.
-3. Install the small API dependency set and Railway CLI once from the repository root:
-
-   ```powershell
-   py -3.13 -m venv .venv
-   .\.venv\Scripts\python -m pip install -r webxr\backend\requirements.txt
-   npm install --global @railway/cli
-   railway login
-   railway link
-   ```
-
-4. In one terminal, run the API locally with the Railway API service variables:
-
-   ```powershell
-   cd webxr\backend
-   railway run --service api ..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-5. In a second terminal, set up and run Vite:
+3. Configure the frontend and install its dependencies:
 
    ```powershell
    cd webxr
    Copy-Item .env.example .env.local
+   # Set VITE_API_BASE_URL to https://<api-domain>/api/v1 in .env.local
+   npm ci
+   ```
+
+4. Start Vite:
+
+   ```powershell
    npm run dev
    ```
 
-Open `http://localhost:5173`. The local API reads Railway's database, Redis, and S3 settings; jobs enter the Railway queue and run on the Railway worker. If you prefer, point `VITE_API_BASE_URL` in `.env.local` at the Railway API domain and skip running the local API. Install Node dependencies with `npm ci` only if `node_modules` is missing or `package-lock.json` changed.
+Open `http://localhost:5173`. The frontend sends requests to the Railway API, and jobs run on the Railway worker. Requests from local development use whichever Railway environment is configured by that API URL.

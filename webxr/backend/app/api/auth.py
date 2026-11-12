@@ -50,7 +50,11 @@ def _send_token_email(user: User, raw_token: str, kind: str) -> None:
         message = f"Hello {user.display_name},\n\nChoose a new password using this link:\n{url}\n\nThis link expires in {settings.password_reset_token_minutes} minutes. If you did not request this, ignore this email."
     try:
         html = password_reset_email(user.display_name, url, settings.password_reset_token_minutes) if kind == "reset" else None
-        send_security_email(user.email, subject, message, html)
+        provider_id = send_security_email(user.email, subject, message, html)
+        logger.info(
+            "Security email accepted by provider: kind=%s user_id=%s provider_id=%s",
+            kind, user.id, provider_id or "unavailable",
+        )
     except Exception as exc:
         logger.exception("Security email delivery failed for user id %s", user.id)
         raise HTTPException(

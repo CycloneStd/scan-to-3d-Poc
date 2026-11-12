@@ -1,4 +1,5 @@
 import json
+import logging
 import smtplib
 from email.message import EmailMessage
 from urllib.error import HTTPError, URLError
@@ -6,8 +7,10 @@ from urllib.request import Request, urlopen
 
 from ..config import get_settings
 
+logger = logging.getLogger(__name__)
 
-def send_security_email(to_email: str, subject: str, body: str, html_body: str | None = None) -> None:
+
+def send_security_email(to_email: str, subject: str, body: str, html_body: str | None = None) -> str | None:
     settings = get_settings()
     from_email = settings.email_from_email or settings.smtp_from_email
     from_name = settings.email_from_name or settings.smtp_from_name
@@ -36,7 +39,8 @@ def send_security_email(to_email: str, subject: str, body: str, html_body: str |
         )
         try:
             with urlopen(request, timeout=20) as response:
-                response.read()
+                result = json.loads(response.read())
+                return result.get("id")
         except HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Resend rejected the email ({error.code}): {detail}") from error
@@ -63,3 +67,4 @@ def send_security_email(to_email: str, subject: str, body: str, html_body: str |
         if settings.smtp_username:
             smtp.login(settings.smtp_username, settings.smtp_password.get_secret_value() if settings.smtp_password else "")
         smtp.send_message(message)
+        return None

@@ -20,23 +20,34 @@ async function renderRoute() {
   document.body.className = `${isLibraryPage || isNotFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
   document.body.innerHTML = '<div id="app-root"></div>'
 
+  let pagePromise: Promise<{ default: import('react').ComponentType }>
+  switch (pathname) {
+    case '/signup':
+      pagePromise = import('./pages/auth/SignupPage')
+      break
+    case '/verify-email':
+      pagePromise = import('./pages/auth/VerifyEmailPage')
+      break
+    case '/forgot-password':
+      pagePromise = import('./pages/auth/ForgotPasswordPage')
+      break
+    case '/reset-password':
+      pagePromise = import('./pages/auth/ResetPasswordPage')
+      break
+    case '/login':
+      pagePromise = import('./pages/auth/LoginPage')
+      break
+    default:
+      pagePromise = isLibraryPage
+        ? import('./pages/LibraryPage')
+        : import('./pages/NotFoundPage')
+  }
+
   const [{ StrictMode, createElement }, { createRoot }, pageModule] =
     await Promise.all([
       import('react'),
       import('react-dom/client'),
-      pathname === '/signup'
-        ? import('./pages/auth/SignupPage')
-        : pathname === '/verify-email'
-          ? import('./pages/auth/VerifyEmailPage')
-        : pathname === '/forgot-password'
-          ? import('./pages/auth/ForgotPasswordPage')
-          : pathname === '/reset-password'
-            ? import('./pages/auth/ResetPasswordPage')
-        : isLibraryPage
-          ? import('./pages/LibraryPage')
-          : pathname === '/login'
-            ? import('./pages/auth/LoginPage')
-            : import('./pages/NotFoundPage'),
+      pagePromise,
     ])
 
   const rootElement = document.getElementById('app-root')

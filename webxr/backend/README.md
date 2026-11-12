@@ -14,24 +14,13 @@ Passwords use Argon2id. Access tokens are short lived; refresh tokens are random
 
 ## Local development
 
-Use Docker Desktop with Linux containers. From the repository root, copy `webxr/backend/.env.example` to `webxr/backend/.env`, then set URL-safe random values for `POSTGRES_PASSWORD` and `WEBXR_JWT_SECRET` (at least 32 characters). Set `COLAB_CONFIG_DIR` to a private folder outside the repository with forward slashes on Windows. The default local storage and database live in Docker volumes.
+Run the frontend locally and use the deployed Railway API, PostgreSQL, Redis, object storage, and worker. No local Docker services or backend `.env` file are needed.
 
-Authorize the pipeline's Colab adapter once. This stores the credentials in the private folder mounted into the worker:
+1. Set `VITE_API_BASE_URL` in `webxr/.env.local` to `https://<api-domain>/api/v1`.
+2. Ensure the Railway API's `WEBXR_CORS_ORIGINS` includes `http://localhost:5173` and its deployed web origin.
+3. From `webxr/`, run `npm ci` once and `npm run dev`.
 
-```sh
-docker compose -f webxr/backend/docker-compose.yml build worker
-docker compose -f webxr/backend/docker-compose.yml run --rm --entrypoint micromamba worker run --name base colab sessions
-```
-
-Complete the Google authorization in the interactive terminal, then start the full prototype:
-
-```sh
-docker compose -f webxr/backend/docker-compose.yml up --build -d
-```
-
-The API applies Alembic migrations at startup. The frontend, API, Postgres, Redis, worker, beat scheduler, and Mailpit start together. Visit `http://localhost:5173`, `http://localhost:8000/docs`, and `http://localhost:8025` (email preview). To inspect services use `docker compose -f webxr/backend/docker-compose.yml logs -f api worker`.
-
-The first worker image build is large because it installs COLMAP, Blender, FFmpeg, and the reconstruction stack. Its Conda index now uses the compressed upstream feed instead of the GitHub OCI mirror that was dropping large downloads; BuildKit also keeps downloaded package files across a failed build retry. Later builds reuse Docker's layer cache. Local web-only work can still use `cd webxr; npm run dev` while the backend services run in Compose.
+Local development requests use the Railway environment and its data. Use a separate Railway environment for development if you need isolated data. Keep production secrets in Railway's variable manager; don't copy backend secrets into local files.
 
 ### Why the earlier worker build failed
 
@@ -104,7 +93,7 @@ All API endpoints are under `/api/v1`. Protected endpoints use `Authorization: B
 - `POST /auth/password/reset` — body `{ "token": "...", "new_password": "..." }`; one use, expiring, invalidates refresh tokens.
 - `POST /auth/password/change` — authenticated body with `current_password` and `new_password`; invalidates refresh tokens.
 
-Passwords must be 12–256 characters. Configure SMTP before using verification or reset outside the local Mailpit setup. Verification and reset links open the frontend pages, which submit their one-time tokens to the API.
+Passwords must be 12–256 characters. Configure the production email provider before using verification or reset. Verification and reset links open the frontend pages, which submit their one-time tokens to the API. Successful provider acceptance and provider message IDs are logged by the API; delivery outcomes are available in the provider dashboard.
 
 ### Scans, uploads, jobs, and results
 
