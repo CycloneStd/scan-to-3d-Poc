@@ -1,13 +1,10 @@
 import json
-import logging
 import smtplib
 from email.message import EmailMessage
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from ..config import get_settings
-
-logger = logging.getLogger(__name__)
 
 
 def send_security_email(to_email: str, subject: str, body: str, html_body: str | None = None) -> str | None:
@@ -34,6 +31,9 @@ def send_security_email(to_email: str, subject: str, body: str, html_body: str |
             headers={
                 "Authorization": f"Bearer {settings.resend_api_key.get_secret_value()}",
                 "Content-Type": "application/json",
+                # Cloudflare rejects urllib's default Python-urllib signature
+                # with 403/1010. Identify the calling service explicitly.
+                "User-Agent": "scan3d-backend/1.0 (Resend API client)",
             },
             method="POST",
         )
