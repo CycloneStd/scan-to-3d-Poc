@@ -14,13 +14,34 @@ Passwords use Argon2id. Access tokens are short lived; refresh tokens are random
 
 ## Local development
 
-Run the frontend locally and use the deployed Railway API, PostgreSQL, Redis, object storage, and worker. No local Docker services or backend `.env` file are needed.
+Choose one local runtime; both run the same application source and use the same Resend integration.
+
+### Railway-backed frontend (lightweight)
 
 1. Set `VITE_API_BASE_URL` in `webxr/.env.local` to `https://<api-domain>/api/v1`.
 2. Ensure the Railway API's `WEBXR_CORS_ORIGINS` includes `http://localhost:5173` and its deployed web origin.
 3. From `webxr/`, run `npm ci` once and `npm run dev`.
 
-Local development requests use the Railway environment and its data. Use a separate Railway environment for development if you need isolated data. Keep production secrets in Railway's variable manager; don't copy backend secrets into local files.
+This uses the selected Railway environment and its data. Use a separate Railway environment if you need isolated development data.
+
+### Optional local Docker stack
+
+1. Copy `webxr/backend/.env.example` to `webxr/backend/.env` and provide a Resend API key and verified sender if you want local signup/reset email delivery.
+2. From the repository root, start the frontend, API, PostgreSQL, and Redis:
+
+   ```powershell
+   docker compose --env-file webxr/backend/.env -f webxr/backend/docker-compose.yml up --build
+   ```
+
+3. Open `http://localhost:5173`. The API uses local PostgreSQL, Redis, and filesystem storage. Migrations run automatically when the API starts.
+
+The optional `processing` profile also builds the large reconstruction worker image. Enable it only when you need local job processing and have configured `COLAB_CONFIG_DIR`:
+
+```powershell
+docker compose --env-file webxr/backend/.env -f webxr/backend/docker-compose.yml --profile processing up --build
+```
+
+The Docker stack uses the same Dockerfiles, API, frontend, and configuration code as Railway. Only service URLs, storage backend, and secrets differ by environment. Never commit `.env` files.
 
 ### Why the earlier worker build failed
 

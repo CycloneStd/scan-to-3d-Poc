@@ -1,83 +1,123 @@
 import './styles/components/input.css'
 import './styles/login.css'
-import { StrictMode, createElement, useEffect } from 'react'
+import { StrictMode, createElement, useEffect, type ComponentType, type ReactNode } from 'react'
 
-function RouteReady({ children }: { children: React.ReactNode }) {
+type RouteModule = { default: ComponentType }
+
+function RouteReady({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.body.dataset.routeReady = 'true'
   }, [])
   return children
 }
 
-async function renderRoute() {
-  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
-  if (pathname === '/') {
-    document.body.dataset.routeReady = 'true'
-    return
-  }
-  const isModelPage = /^\/model\/[^/]+$/.test(pathname)
-  const isScanPage = pathname === '/scan'
-  const isKnownRoute = pathname === '/login' || pathname === '/signup' || pathname === '/forgot-password' || pathname === '/reset-password' || pathname === '/verify-email' || pathname === '/library' || isModelPage || isScanPage
-  const isNotFound = !isKnownRoute
+const authRoutes: Record<string, () => Promise<RouteModule>> = {
+  '/signup': () => import('./pages/auth/SignupPage'),
+  '/verify-email': () => import('./pages/auth/VerifyEmailPage'),
+  '/forgot-password': () => import('./pages/auth/ForgotPasswordPage'),
+  '/reset-password': () => import('./pages/auth/ResetPasswordPage'),
+  '/login': () => import('./pages/auth/LoginPage'),
+}
 
-  const isLibraryPage = pathname === '/library' || isModelPage || isScanPage
-  if (isLibraryPage) {
+let appRoot: ReturnType<typeof import('react-dom/client')['createRoot']> | undefined
+let activeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+function normalizedPath(url: URL) {
+  return url.pathname.replace(/\/+$/, '') || '/'
+}
+
+async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: boolean; notFound: boolean; destination: URL }> {
+  const path = normalizedPath(url)
+  const protectedRoute = path === '/library' || path === '/scan' || /^\/model\/[^/]+$/.test(path)
+
+  if (protectedRoute) {
     const { ApiRequestError, authApi } = await import('./services/auth')
     try {
       await authApi.me()
     } catch (error) {
-      if (!(error instanceof ApiRequestError) || error.status !== 401) throw error
-      const next = pathname + window.location.search
-      window.location.replace(`/login?next=${encodeURIComponent(next)}`)
-      return
+      if (error instanceof ApiRequestError && error.status === 401) {
+        const next = `${url.pathname}${url.search}${url.hash}`
+        const destination = new URL(`/login?next=${encodeURIComponent(next)}`, window.location.origin)
+        return { page: await authRoutes['/login'](), protected: false, notFound: false, destination }
+      }
+      throw error
     }
   }
 
-  document.body.className = `${isLibraryPage || isNotFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
-  document.body.replaceChildren(Object.assign(document.createElement('div'), { id: 'app-root' }))
-
-  const pageLoaders: Record<string, () => Promise<{ default: import('react').ComponentType }>> = {
-    '/signup': () => import('./pages/auth/SignupPage'),
-    '/verify-email': () => import('./pages/auth/VerifyEmailPage'),
-    '/forgot-password': () => import('./pages/auth/ForgotPasswordPage'),
-    '/reset-password': () => import('./pages/auth/ResetPasswordPage'),
-    '/login': () => import('./pages/auth/LoginPage'),
-  }
-  const pagePromise = pageLoaders[pathname]
-    ? pageLoaders[pathname]()
-    : isLibraryPage
-      ? import('./pages/LibraryPage')
-      : import('./pages/NotFoundPage')
-
-  const [{ createRoot }, pageModule] = await Promise.all([
-    import('react-dom/client'),
-    pagePromise,
-  ])
-  const rootElement = document.getElementById('app-root')
-  if (!rootElement) throw new Error('Application root element was not found.')
-
-  createRoot(rootElement).render(createElement(
-    StrictMode,
-    null,
-    createElement(RouteReady, null, createElement(pageModule.default)),
-  ))
+  if (authRoutes[path]) return { page: await authRoutes[path](), protected: protectedRoute, notFound: false, destination: url }
+  if (protectedRoute) return { page: await import('./pages/LibraryPage'), protected: true, notFound: false, destination: url }
+  return { page: await import('./pages/NotFoundPage'), protected: false, notFound: true, destination: url }
 }
 
-void renderRoute()
-  .catch((error: unknown) => {
-    console.error('Page failed to load.', error)
-    document.body.className = 'login-page bg-surface-base text-surface'
-    const main = document.createElement('main')
-    main.className = 'login-shell'
-    const section = document.createElement('section')
-    section.className = 'login-content'
-    section.innerHTML = '<header class="login-heading"><h1>Page unavailable</h1><p>We couldn’t load this page. Check your connection and try again.</p></header>'
-    const reload = document.createElement('button')
-    reload.className = 'login-submit'
-    reload.type = 'button'
-    reload.textContent = 'Reload page'
-    reload.addEventListener('click', () => window.location.reload())
-    section.append(reload)
-    main.append(section)
-    document.body.replaceChildren(main)
+async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
+  if (normalizedPath(url) === '/' && mode === 'initial') {
+    activeUrl = `${url.pathname}${url.search}${url.hash}`
+    document.body.dataset.routeReady = 'true'
+    return
+  }
+  if (normalizedPath(url) === '/' && mode !== 'initial') {
+    window.location.assign(url.href)
+    return
+  }
+  const loaded = await loadRoute(url)
+  const destination = loaded.destination
+  const path = normalizedPath(destination)
+
+  if (loaded.page === undefined) throw new Error('The requested page has no route module.')
+  if (!appRoot) {
+    const root = document.createElement('div')
+    root.id = 'app-root'
+    document.body.replaceChildren(root)
+    const { createRoot } = await import('react-dom/client')
+    appRoot = createRoot(root)
+  }
+
+  document.body.className = `${loaded.protected || loaded.notFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
+  appRoot.render(createElement(StrictMode, null, createElement(RouteReady, null, createElement(loaded.page.default))))
+
+  if (mode === 'push') window.history.pushState(null, '', destination)
+  else if (destination.href !== url.href) window.history.replaceState(null, '', destination)
+  activeUrl = `${destination.pathname}${destination.search}${destination.hash}`
+}
+
+function showInitialLoadError() {
+  document.body.className = 'login-page bg-surface-base text-surface'
+  const main = document.createElement('main')
+  main.className = 'login-shell'
+  const section = document.createElement('section')
+  section.className = 'login-content'
+  const heading = document.createElement('header')
+  heading.className = 'login-heading'
+  heading.innerHTML = '<h1>Page unavailable</h1><p>We couldn’t load this page. Check your connection and try again.</p>'
+  const reload = document.createElement('button')
+  reload.className = 'login-submit'
+  reload.type = 'button'
+  reload.textContent = 'Reload page'
+  reload.addEventListener('click', () => window.location.reload())
+  section.append(heading, reload)
+  main.append(section)
+  document.body.replaceChildren(main)
+  document.body.dataset.routeReady = 'true'
+}
+
+document.addEventListener('click', (event) => {
+  if (!(event.target instanceof Element) || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  const anchor = event.target.closest('a[href]')
+  if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute('download')) return
+  const url = new URL(anchor.href)
+  if (url.origin !== window.location.origin || url.pathname === '/') return
+  event.preventDefault()
+  void navigate(url).catch((error: unknown) => console.error('Navigation failed; keeping the current page.', error))
+})
+
+window.addEventListener('popstate', () => {
+  void navigate(new URL(window.location.href), 'pop').catch((error: unknown) => {
+    console.error('History navigation failed; restoring the current page.', error)
+    window.history.replaceState(null, '', activeUrl)
   })
+})
+
+void navigate(new URL(window.location.href), 'initial').catch((error: unknown) => {
+  console.error('Initial page failed to load.', error)
+  showInitialLoadError()
+})

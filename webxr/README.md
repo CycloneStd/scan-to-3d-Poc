@@ -57,7 +57,7 @@ npm run preview
 `dist/` is generated output and is ignored by Git. Recreate it with `npm run build` when needed.
 ## Run the web prototype locally
 
-Run the frontend locally and use the deployed Railway API and worker. PostgreSQL, Redis, object storage, and processing stay in Railway; no local Docker or API environment is required.
+Run the frontend locally against Railway for the lightweight setup, or start the optional local Docker stack in [backend/README.md](backend/README.md). Both use the same application code; only environment configuration selects the service URLs and storage backend.
 
 1. Deploy the Railway API and worker, and provision Railway PostgreSQL, Redis, and S3-compatible storage, using [backend/README.md](backend/README.md).
 2. Add `http://localhost:5173` to the Railway API's `WEBXR_CORS_ORIGINS`. Keep the deployed website origin too. Use a separate Railway environment and data services for development so local testing doesn't alter production data.

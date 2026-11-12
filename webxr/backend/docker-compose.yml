@@ -1,0 +1,106 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: scan3d
+      POSTGRES_USER: scan3d
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-scan3d-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scan3d -d scan3d"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: ../..
+      dockerfile: webxr/backend/Dockerfile.api
+    environment: &backend-env
+      WEBXR_ENVIRONMENT: development
+      WEBXR_DATABASE_URL: postgresql+psycopg://scan3d:${POSTGRES_PASSWORD:-local-scan3d-password}@postgres:5432/scan3d
+      WEBXR_REDIS_URL: redis://redis:6379/0
+      WEBXR_JWT_SECRET: ${WEBXR_JWT_SECRET:-local-only-change-this-secret-32-chars}
+      WEBXR_FRONTEND_BASE_URL: http://localhost:5173
+      WEBXR_CORS_ORIGINS: http://localhost:5173
+      WEBXR_RESEND_API_KEY: ${WEBXR_RESEND_API_KEY:-}
+      WEBXR_EMAIL_FROM_EMAIL: ${WEBXR_EMAIL_FROM_EMAIL:-}
+      WEBXR_EMAIL_FROM_NAME: ${WEBXR_EMAIL_FROM_NAME:-Cyclone Scan}
+      WEBXR_STORAGE_BACKEND: local
+      WEBXR_STORAGE_LOCAL_ROOT: /data/storage
+      WEBXR_PIPELINE_CONFIG_TEMPLATE: /repo/configs/house.yaml
+      WEBXR_PIPELINE_WORK_ROOT: /data/pipeline
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/data
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+    ports:
+      - "5173:5173"
+    volumes:
+      - ..:/app
+      - web-node-modules:/app/node_modules
+      - ../../web:/web
+    command: ["sh", "-c", "if [ ! -x node_modules/.bin/vite ]; then npm ci; fi && npm run dev -- --host 0.0.0.0"]
+    depends_on:
+      - api
+
+  worker:
+    profiles: [processing]
+    build:
+      context: ../..
+      dockerfile: webxr/backend/Dockerfile.worker
+    environment: *backend-env
+    volumes:
+      - backend-data:/data
+      - ${COLAB_CONFIG_DIR:-./colab-config}:/home/mambauser/.config/colab
+    command: ["micromamba", "run", "--name", "base", "celery", "-A", "app.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    profiles: [processing]
+    build:
+      context: ../..
+      dockerfile: webxr/backend/Dockerfile.worker
+    environment: *backend-env
+    volumes:
+      - backend-data:/data
+    command: ["micromamba", "run", "--name", "base", "celery", "-A", "app.worker:celery_app", "beat", "--loglevel=INFO"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
+  backend-data:
+  web-node-modules:
