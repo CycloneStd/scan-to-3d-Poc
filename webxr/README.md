@@ -38,7 +38,7 @@ The landing page stays in HTML. Product pages are React components in `src/pages
 4. Processing: reconstruction stages and progress.
 5. Result viewer: 3D inspection and exports.
 
-The FastAPI backend, authentication flows, scan/job APIs, worker, and storage adapters are in [`backend/`](backend/README.md). Authentication is connected to the API; the scan/library pages remain on their existing frontend implementation. Vite exposes `../web/assets` as its public directory for generated reconstruction assets.
+The FastAPI backend, authentication flows, scan/job APIs, worker, and storage adapters are in [`backend/`](backend/README.md). Authentication, scan/library data, uploads, jobs, and results use the API. Vite exposes `../web/assets` as its public directory for generated reconstruction assets.
 
 ## Local development
 

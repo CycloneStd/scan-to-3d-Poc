@@ -1,3 +1,5 @@
+import glob
+import hashlib
 import json
 import os
 import re
@@ -7,11 +9,10 @@ import sys
 import tarfile
 import time
 import traceback
-import hashlib
-import glob
 import shlex
 import sqlite3
 from collections import deque
+from pathlib import Path
 
 JOB = "/content/job.json"
 RESULT = "/content/result.json"
@@ -30,7 +31,6 @@ def patch_pycolmap():
     """NumPy 2 rejects np.uint64(-1); express the sentinel explicitly. Reports exactly what was changed."""
     import importlib
     import importlib.util
-    import pathlib
 
     importlib.invalidate_caches()
     spec = importlib.util.find_spec("pycolmap")
@@ -39,7 +39,7 @@ def patch_pycolmap():
     roots = list(spec.submodule_search_locations or [os.path.dirname(spec.origin)])
     patched = []
     for root in roots:
-        for p in pathlib.Path(root).rglob("*.py"):
+        for p in Path(root).rglob("*.py"):
             text = p.read_text()
             new = re.sub(r"\b(np|numpy)\.uint64\(\s*-1\s*\)", "np.uint64(0xFFFFFFFFFFFFFFFF)", text)
             if new != text:

@@ -1,6 +1,6 @@
 # WebXR backend
 
-This backend provides account authentication, verification and password reset, scan metadata, private uploads, processing jobs, and model artifact storage. The Vite/React frontend is connected to the auth endpoints; scan and library data remain on their existing frontend implementation.
+This backend provides account authentication, verification and password reset, scan metadata, private uploads, processing jobs, and model artifact storage. The Vite/React frontend uses its API for authentication, scan/library data, uploads, jobs, and model artifacts.
 
 ## Stack
 

@@ -3,16 +3,16 @@
 Photos (or video frames) to a textured 3D mesh that opens in Blender.
 
 ## Requirements
-- Linux, conda, ffmpeg, Blender 4+ (`blender` on PATH)
-- COLMAP >= 4.0 in its own conda env: `conda create -n colmap4 -c conda-forge colmap=4.2`
-- Ensure `colmap` is on `PATH`. The supplied config uses that executable; set `colmap.binary` to an absolute path only when you need to select a specific install.
-- A Google Colab account with compute units and the `colab` CLI (`uv tool install google-colab-cli`); authorize with `colab sessions` and export the worker credential with `uv run --with google-colab-cli python scripts/export_colab_auth.py`
+- For the web app, Docker Desktop is the simplest local setup; see [webxr/backend/README.md](webxr/backend/README.md).
+- For the standalone pipeline CLI, use Linux with Micromamba, FFmpeg, and Blender 4+ (`blender` on `PATH`). COLMAP reconstruction runs in Colab for the mesh track.
+- A Google Colab account with compute units and the `colab` CLI (`uv tool install google-colab-cli`); authorize with `colab sessions` and export the worker credential with `uv run --with google-colab-cli python scripts/export_colab_auth.py`.
 
 ## Install
 ```bash
-conda env create -f environment.yml && conda activate <env>
-pip install -e . && pytest -q
-scan3d doctor
+micromamba create -f webxr/backend/environment-worker.yml
+micromamba run -n scan3d-worker python -m pip install -r webxr/backend/requirements.txt
+micromamba run -n scan3d-worker python -m pip install -e .
+micromamba run -n scan3d-worker scan3d doctor
 ```
 
 ## Run
