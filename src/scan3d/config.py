@@ -24,7 +24,7 @@ DEFAULTS = {
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},
     "video": {"select": "sharpest", "oversample": 3},
-    "features": {"matcher": "auto", "sequential_overlap": 15},
+    "features": {"matcher": "auto", "sequential_overlap": 15, "max_image_size": 2000, "num_threads": 1},
     "remote": {"chunk_mb": 2, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
                "upload_workers": 1},
     "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,

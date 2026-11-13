@@ -22,3 +22,14 @@ def gpu_flag(binary: str, command: str, kind: str) -> str:
         if f"--{prefix}.use_gpu" in text:
             return f"--{prefix}.use_gpu"
     raise RuntimeError(f"Could not find a use_gpu option in `{binary} {command} -h`")
+
+
+def option_flag(binary: str, command: str, kind: str, option: str) -> str:
+    """Resolve option names across COLMAP's Feature/Sift naming variants."""
+    old = {"FeatureExtraction": "SiftExtraction", "FeatureMatching": "SiftMatching"}[kind]
+    text = help_text(binary, command)
+    for prefix in (kind, old):
+        flag = f"--{prefix}.{option}"
+        if flag in text:
+            return flag
+    raise RuntimeError(f"Could not find a {option} option in `{binary} {command} -h`")

@@ -70,7 +70,11 @@ class FeaturesStage(Stage):
                   "--database_path", db, "--image_path", images_root, "--image_list_path", image_list,
                   "--ImageReader.single_camera_per_folder", "1",
                   "--ImageReader.camera_model", cfg["features"]["camera_model"],
-                  cm.gpu_flag(binary, "feature_extractor", "FeatureExtraction"), use_gpu],
+                  cm.gpu_flag(binary, "feature_extractor", "FeatureExtraction"), use_gpu,
+                  cm.option_flag(binary, "feature_extractor", "FeatureExtraction", "max_image_size"),
+                  str(cfg["features"]["max_image_size"]),
+                  cm.option_flag(binary, "feature_extractor", "FeatureExtraction", "num_threads"),
+                  str(cfg["features"]["num_threads"])],
                  log_file=logf)
 
         matcher = effective_matcher(cfg)

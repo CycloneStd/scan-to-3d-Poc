@@ -31,6 +31,9 @@ colmap:
 features:
   camera_model: SIMPLE_RADIAL
   use_gpu: false
+  # Bound CPU feature extraction memory on small cloud worker instances.
+  max_image_size: 2000
+  num_threads: 1
 
 sparse:
   mapper: incremental
