@@ -76,7 +76,7 @@ services:
     environment: *backend-env
     volumes:
       - backend-data:/data
-      - ${COLAB_CONFIG_DIR:-./colab-config}:/home/mambauser/.config/colab
+      - ${COLAB_CONFIG_DIR:-./colab-config}:/home/mambauser/.config/colab-cli
     command: ["micromamba", "run", "--name", "base", "celery", "-A", "app.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
     depends_on:
       postgres:

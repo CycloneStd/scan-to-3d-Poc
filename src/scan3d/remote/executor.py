@@ -156,6 +156,12 @@ class ColabExecutor:
                     self.have_session = True
                     log.info("Allocated runtime: gpu=%s high_mem=%s", gpu, hm)
                     return
+                if "Enter the authorization code:" in self.last_output:
+                    raise RuntimeError(
+                        "Colab CLI authentication is interactive and cannot run on a Railway worker. "
+                        "Authorize Colab on a trusted computer, export its OAuth token to "
+                        "~/.config/colab-cli/token.json, and mount that file into the worker."
+                    )
                 log.warning("Allocation failed for gpu=%s high_mem=%s", gpu, hm)
             if attempt < retries:
                 log.info("Waiting %ds before retrying allocation...", wait_s)

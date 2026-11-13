@@ -14,7 +14,7 @@ RUN micromamba run --name base python -m pip install --no-cache-dir -r webxr/bac
     && micromamba run --name base python -m pip install --no-cache-dir -e .
 ENV PYTHONPATH=/repo/webxr/backend
 ENV HOME=/home/mambauser
-RUN mkdir -p /data /home/mambauser/.config/colab-cli /home/mambauser/.config/colab \
+RUN mkdir -p /data /home/mambauser/.config/colab-cli \
     && chown -R mambauser:mambauser /data /opt/conda /home/mambauser/.config
 USER mambauser
 WORKDIR /repo/webxr/backend

@@ -21,7 +21,7 @@ remote:
   high_mem: true
   upload_workers: 4
   chunk_mb: 4
-  auth: null
+  auth: oauth2
 
 colmap:
   # Use the executable on PATH. Railway's worker installs COLMAP into its

@@ -20,7 +20,7 @@ remote:
   session: scan3d
   gpu: T4
   high_mem: true
-  auth: null
+  auth: oauth2
 
 
 colmap:

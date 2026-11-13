@@ -6,7 +6,7 @@ Photos (or video frames) to a textured 3D mesh that opens in Blender.
 - Linux, conda, ffmpeg, Blender 4+ (`blender` on PATH)
 - COLMAP >= 4.0 in its own conda env: `conda create -n colmap4 -c conda-forge colmap=4.2`
 - Ensure `colmap` is on `PATH`. The supplied config uses that executable; set `colmap.binary` to an absolute path only when you need to select a specific install.
-- A Google Colab account with compute units and the `colab` CLI (`uv tool install google-colab-cli`); run `colab sessions` once to authorize
+- A Google Colab account with compute units and the `colab` CLI (`uv tool install google-colab-cli`); authorize with `colab sessions` and export the worker credential with `uv run --with google-colab-cli python scripts/export_colab_auth.py`
 
 ## Install
 ```bash

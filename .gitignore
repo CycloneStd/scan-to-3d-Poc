@@ -153,6 +153,7 @@ activemq-data/
 .env
 .envrc
 .venv
+/webxr/backend/colab-config/
 env/
 venv/
 ENV/
