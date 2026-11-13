@@ -13,7 +13,9 @@ COPY --chown=mambauser:mambauser . /repo
 RUN micromamba run --name base python -m pip install --no-cache-dir -r webxr/backend/requirements.txt \
     && micromamba run --name base python -m pip install --no-cache-dir -e .
 ENV PYTHONPATH=/repo/webxr/backend
-RUN mkdir -p /data && chown -R mambauser:mambauser /data /opt/conda
+ENV HOME=/home/mambauser
+RUN mkdir -p /data /home/mambauser/.config/colab-cli /home/mambauser/.config/colab \
+    && chown -R mambauser:mambauser /data /opt/conda /home/mambauser/.config
 USER mambauser
 WORKDIR /repo/webxr/backend
 CMD ["micromamba", "run", "--name", "base", "celery", "-A", "app.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
