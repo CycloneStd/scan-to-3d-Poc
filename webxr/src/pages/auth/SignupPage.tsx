@@ -114,11 +114,13 @@ export default function SignupPage() {
           <button
             className={submitButtonClasses}
             type="submit"
+            disabled={busy}
+            aria-busy={busy}
             data-mode="solid"
             data-size="lg"
             data-variant="primary"
           >
-            {busy ? 'Creating account…' : 'Create account'}
+            {busy ? <><span className="auth-submit-spinner" aria-hidden="true" />Creating account…</> : 'Create account'}
           </button>
           {error && <p role="alert" className="login-account-prompt">{error}</p>}
         </form>

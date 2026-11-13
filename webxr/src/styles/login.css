@@ -26,6 +26,9 @@ body.login-page { min-height: 100svh; margin: 0; }
 .login-forgot-link { justify-self: end; margin-top: -8px; color: #fff; font-size: 16px; text-underline-offset: 3px; }
 .login-forgot-link:hover { color: #e5e5e5; }
 .login-submit { width: 100%; font-weight: 500; }
+.auth-submit-spinner { display: inline-block; width: 16px; height: 16px; flex: 0 0 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: auth-submit-spin 700ms linear infinite; }
+@keyframes auth-submit-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .auth-submit-spinner { animation: none; } }
 .login-account-prompt { margin: 22px 0 0; color: #fff; font-size: 16px; text-align: center; }
 .login-account-prompt a { color: var(--app-color-surface-fg-link); text-underline-offset: 3px; }
 .login-account-prompt a:hover { color: var(--app-color-surface-fg-link-hover); }

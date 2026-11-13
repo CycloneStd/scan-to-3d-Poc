@@ -149,11 +149,13 @@ export default function LoginPage() {
           <button
             className={submitButtonClasses}
             type="submit"
+            disabled={busy}
+            aria-busy={busy}
             data-mode="solid"
             data-size="lg"
             data-variant="primary"
           >
-            {busy ? 'Signing in…' : 'Continue'}
+            {busy ? <><span className="auth-submit-spinner" aria-hidden="true" />Signing in…</> : 'Continue'}
           </button>
           {error && <p role="alert" className="login-account-prompt">{error}</p>}
         </form>
