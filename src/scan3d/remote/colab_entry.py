@@ -224,6 +224,7 @@ def reconstruct_mesh(job):
                 shutil.rmtree(path)
             elif os.path.exists(path):
                 os.remove(path)
+        os.makedirs(models)
         for path in glob.glob(f"{work}/model_txt_*"):
             shutil.rmtree(path, ignore_errors=True)
 
