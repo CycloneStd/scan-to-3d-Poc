@@ -34,6 +34,9 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-sort-card:focus-within { outline: 2px solid var(--app-color-primary-border-muted); outline-offset: 2px; }
 .library-results { width: min(calc(100% - 32px), 1600px); margin: 44px auto 64px; }
 .library-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.library-empty-state { display: grid; min-height: 280px; place-content: center; justify-items: center; gap: 14px; color: #fff; text-align: center; }
+.library-empty-state svg { width: 48px; height: 48px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.library-empty-state p { margin: 0; font-size: 16px; font-weight: 500; }
 .library-item-card { position: relative; min-width: 0; min-height: 360px; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
 .library-card-preview { position: relative; }
 .library-card-link { position: absolute; z-index: 2; inset: 0; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }

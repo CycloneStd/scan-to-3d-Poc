@@ -106,12 +106,17 @@ export default function LoginPage() {
     const email = (form.elements.namedItem('email') as HTMLInputElement).value
     const password = (form.elements.namedItem('password') as HTMLInputElement).value
     setBusy(true); setError('')
+    let navigating = false
     try {
       await authApi.login(email, password)
       const next = new URLSearchParams(window.location.search).get('next')
-      window.location.assign(next?.startsWith('/') && !next.startsWith('//') ? next : '/library')
+      const destination = next?.startsWith('/') && !next.startsWith('//') ? next : '/library'
+      navigating = true
+      window.dispatchEvent(new CustomEvent('cyclone:navigate', {
+        detail: { destination, authenticated: true, onError: () => { setError('The library could not be opened. Please try again.'); setBusy(false) } },
+      }))
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Sign in failed.') }
-    finally { setBusy(false) }
+    finally { if (!navigating) setBusy(false) }
   }
 
   return (

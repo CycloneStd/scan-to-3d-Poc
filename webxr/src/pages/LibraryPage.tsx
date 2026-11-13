@@ -109,6 +109,7 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [exportFormat, setExportFormat] = useState<'GLB' | 'OBJ' | 'PLY'>('GLB')
   const [scans, setScans] = useState<ScanCard[]>([])
+  const [hasLoadedScans, setHasLoadedScans] = useState(false)
   const [scanFiles, setScanFiles] = useState<File[]>([])
   const [uploadError, setUploadError] = useState('')
   const [scanProgress, setScanProgress] = useState<number | null>(null)
@@ -123,6 +124,7 @@ export default function LibraryPage() {
   const refreshScans = useCallback(async () => {
     const records = (await scansApi.list()).map(toScanCard)
     setScans(records)
+    setHasLoadedScans(true)
     setSelectedScan((current) => current ? records.find((scan) => scan.id === current.id) ?? current : current)
     return records
   }, [])
@@ -454,6 +456,16 @@ export default function LibraryPage() {
             </article>
           ))}
         </div>
+        {hasLoadedScans && scans.length === 0 && (
+          <div className="library-empty-state" role="status">
+            <svg viewBox="0 0 48 48" aria-hidden="true">
+              <path d="M29.4 6.5c4.3 3.1 7 7.9 7.2 13.1l.2 5.6-12.7 12.7-5.5-.3c-5.2-.2-10-2.9-13.1-7.2l6.8-2.6 2.5-7.6 7.6-2.5 2.7-6.8 4.3-4.4Z" />
+              <path d="m13 29-5.5 5.5M18.6 34l-1.3 7.5 7.4-7.4M29 13.7h.1" />
+              <circle cx="29" cy="18" r="3.2" />
+            </svg>
+            <p>No objects yet</p>
+          </div>
+        )}
       </section>
 
       {selectedScan && (

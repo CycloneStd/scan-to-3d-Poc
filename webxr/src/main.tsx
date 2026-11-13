@@ -54,11 +54,11 @@ function prefetchRoute(url: URL) {
   void load().catch(() => prefetchedRoutes.delete(path))
 }
 
-async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: boolean; notFound: boolean; destination: URL }> {
+async function loadRoute(url: URL, hasFreshAuthentication = false): Promise<{ page: RouteModule; protected: boolean; notFound: boolean; destination: URL }> {
   const path = normalizedPath(url)
   const protectedRoute = path === '/library' || path === '/scan' || /^\/model\/[^/]+$/.test(path)
 
-  if (protectedRoute) {
+  if (protectedRoute && !hasFreshAuthentication) {
     const { ApiRequestError, authApi } = await import('./services/auth')
     try {
       await authApi.me()
@@ -77,7 +77,7 @@ async function loadRoute(url: URL): Promise<{ page: RouteModule; protected: bool
   return { page: await import('./pages/NotFoundPage'), protected: false, notFound: true, destination: url }
 }
 
-async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
+async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push', hasFreshAuthentication = false) {
   const navigationId = ++navigationSequence
   if (normalizedPath(url) === '/' && mode === 'initial') {
     activeUrl = `${url.pathname}${url.search}${url.hash}`
@@ -94,7 +94,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push') {
     return
   }
   const [loaded, reactDom] = await Promise.all([
-    loadRoute(url),
+    loadRoute(url, hasFreshAuthentication),
     import('react-dom/client'),
   ])
   if (navigationId !== navigationSequence) return
@@ -168,6 +168,18 @@ window.addEventListener('popstate', () => {
   void navigate(new URL(window.location.href), 'pop').catch((error: unknown) => {
     console.error('History navigation failed; restoring the current page.', error)
     window.history.replaceState(null, '', activeUrl)
+  })
+})
+
+window.addEventListener('cyclone:navigate', (event) => {
+  const detail = (event as CustomEvent<string | { destination: string; authenticated?: boolean; onError?: () => void }>).detail
+  const destination = typeof detail === 'string' ? detail : detail?.destination
+  if (typeof destination !== 'string') return
+  const url = new URL(destination, window.location.origin)
+  if (url.origin !== window.location.origin) return
+  void navigate(url, 'push', typeof detail !== 'string' && detail.authenticated === true).catch((error: unknown) => {
+    if (typeof detail !== 'string') detail?.onError?.()
+    console.error('Navigation failed; keeping the current page.', error)
   })
 })
 
