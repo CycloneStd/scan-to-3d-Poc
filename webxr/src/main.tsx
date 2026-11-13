@@ -85,6 +85,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push', has
   }
   if (normalizedPath(url) === '/' && mode !== 'initial') {
     if (navigationId !== navigationSequence) return
+    document.documentElement.classList.remove('route-app-initial')
     if (landingRoot) landingRoot.hidden = false
     if (appContainer) appContainer.hidden = true
     document.body.className = landingBodyClass
@@ -114,6 +115,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push', has
     if (navigationId !== navigationSequence || committedNavigationSequence === navigationId) return
     committedNavigationSequence = navigationId
     if (landingRoot) landingRoot.hidden = true
+    document.documentElement.classList.remove('route-app-initial')
     if (appContainer) appContainer.hidden = false
     document.body.className = `${loaded.protected || loaded.notFound ? 'library-page' : 'login-page'} bg-surface-base text-surface`
     if (mode === 'push') window.history.pushState(null, '', destination)
