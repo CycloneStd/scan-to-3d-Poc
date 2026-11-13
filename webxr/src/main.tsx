@@ -58,10 +58,21 @@ async function loadRoute(url: URL, hasFreshAuthentication = false): Promise<{ pa
   const path = normalizedPath(url)
   const protectedRoute = path === '/library' || path === '/scan' || /^\/model\/[^/]+$/.test(path)
 
-  if (protectedRoute && !hasFreshAuthentication) {
-    const { ApiRequestError, authApi } = await import('./services/auth')
+  if (protectedRoute) {
+    const pagePromise = import('./pages/LibraryPage')
+    if (hasFreshAuthentication) {
+      return { page: await pagePromise, protected: true, notFound: false, destination: url }
+    }
+    const [{ ApiRequestError, authApi, hasActiveAccessToken }, page] = await Promise.all([
+      import('./services/auth'),
+      pagePromise,
+    ])
+    if (hasActiveAccessToken()) {
+      return { page, protected: true, notFound: false, destination: url }
+    }
     try {
       await authApi.me()
+      return { page, protected: true, notFound: false, destination: url }
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) {
         const next = `${url.pathname}${url.search}${url.hash}`
@@ -73,7 +84,6 @@ async function loadRoute(url: URL, hasFreshAuthentication = false): Promise<{ pa
   }
 
   if (authRoutes[path]) return { page: await loadAuthRoute(path), protected: protectedRoute, notFound: false, destination: url }
-  if (protectedRoute) return { page: await import('./pages/LibraryPage'), protected: true, notFound: false, destination: url }
   return { page: await import('./pages/NotFoundPage'), protected: false, notFound: true, destination: url }
 }
 

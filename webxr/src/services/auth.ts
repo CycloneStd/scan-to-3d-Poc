@@ -16,6 +16,13 @@ export function apiUrl(path: string) {
   return `${API_BASE}${path}`
 }
 
+export function hasActiveAccessToken() {
+  return Boolean(
+    sessionStorage.getItem(ACCESS_KEY)
+    && Number(sessionStorage.getItem('webxr.expires') || 0) > Date.now(),
+  )
+}
+
 export async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
   let access = sessionStorage.getItem(ACCESS_KEY)
