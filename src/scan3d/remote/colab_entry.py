@@ -272,6 +272,8 @@ def reconstruct_mesh(job):
         started = time.time()
         rc, tail = stream(mapper_cmd)
         attempt["seconds_mapper"] = round(time.time() - started, 1)
+        attempt["mapper_returncode"] = rc
+        attempt["mapper_output_tail"] = tail[-1500:]
         first_error = None
         candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
         candidates = [path for path in candidates if path.is_dir()]
@@ -284,6 +286,8 @@ def reconstruct_mesh(job):
             started = time.time()
             rc, tail = stream(relaxed_cmd)
             attempt["seconds_mapper"] += round(time.time() - started, 1)
+            attempt["mapper_retry_returncode"] = rc
+            attempt["mapper_retry_output_tail"] = tail[-1500:]
             attempt["mapper_retry"] = {"init_min_num_inliers": 30, "init_min_tri_angle": 4}
             candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
             candidates = [path for path in candidates if path.is_dir()]
@@ -305,13 +309,26 @@ def reconstruct_mesh(job):
             return counts
 
         model_counts = {}
+        conversion_attempts = []
         for candidate in candidates:
             text_dir = f"{work}/model_txt_{candidate.name}"
+            shutil.rmtree(text_dir, ignore_errors=True)
+            os.makedirs(text_dir, exist_ok=True)
             rc, tail = stream(colmap + ["model_converter", "--input_path", str(candidate),
                                          "--output_path", text_dir, "--output_type", "TXT"])
-            if rc == 0 and os.path.isfile(f"{text_dir}/images.txt"):
-                model_counts[candidate] = group_counts(Path(text_dir) / "images.txt")
+            images_txt = f"{text_dir}/images.txt"
+            conversion_attempts.append({
+                "candidate": candidate.name,
+                "returncode": rc,
+                "model_files": sorted(path.name for path in candidate.iterdir()),
+                "output_files": sorted(os.listdir(text_dir)) if os.path.isdir(text_dir) else [],
+                "images_txt_found": os.path.isfile(images_txt),
+                "output_tail": tail[-1500:],
+            })
+            if rc == 0 and os.path.isfile(images_txt):
+                model_counts[candidate] = group_counts(Path(images_txt))
         if not model_counts:
+            attempt["conversion_attempts"] = conversion_attempts
             attempt["failed"] = "could not convert sparse models to text"
             continue
         best_model = max(model_counts, key=lambda path: sum(model_counts[path].values()))
