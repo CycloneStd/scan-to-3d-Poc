@@ -24,7 +24,9 @@ remote:
   auth: null
 
 colmap:
-  binary: ${COLMAP_BIN}
+  # Use the executable on PATH. Railway's worker installs COLMAP into its
+  # micromamba environment, so it does not need a host-specific COLMAP_BIN.
+  binary: colmap
 
 features:
   camera_model: SIMPLE_RADIAL

@@ -77,6 +77,44 @@ function formatStatus(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
+const sourceImageBlobs = new Map<string, Promise<Blob>>()
+
+function getSourceImageBlob(assetId: string) {
+  const cached = sourceImageBlobs.get(assetId)
+  if (cached) {
+    sourceImageBlobs.delete(assetId)
+    sourceImageBlobs.set(assetId, cached)
+    return cached
+  }
+  const request = scansApi.sourceAsset(assetId)
+  sourceImageBlobs.set(assetId, request)
+  while (sourceImageBlobs.size > 3) sourceImageBlobs.delete(sourceImageBlobs.keys().next().value!)
+  void request.catch(() => {
+    if (sourceImageBlobs.get(assetId) === request) sourceImageBlobs.delete(assetId)
+  })
+  return request
+}
+
+async function preloadSourceImage(assetId: string) {
+  const blob = await getSourceImageBlob(assetId)
+  const url = URL.createObjectURL(blob)
+  const image = new Image()
+  try {
+    if (typeof image.decode === 'function') {
+      image.src = url
+      await image.decode()
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve()
+        image.onerror = () => reject(new Error('The original image could not be decoded.'))
+        image.src = url
+      })
+    }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 function PreviewPlaceholder() {
   return (
     <div className="library-preview-placeholder" aria-hidden="true">
@@ -88,20 +126,38 @@ function PreviewPlaceholder() {
 
 function SourceAssetImage({ asset, name, index }: { asset: ScanAsset; name: string; index: number }) {
   const [src, setSrc] = useState<string>()
+  const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     let active = true
     let objectUrl: string | undefined
-    void scansApi.sourceAsset(asset.id).then((blob) => {
+    setSrc(undefined)
+    setLoaded(false)
+    setFailed(false)
+    void getSourceImageBlob(asset.id).then((blob) => {
       objectUrl = URL.createObjectURL(blob)
       if (active) setSrc(objectUrl)
       else URL.revokeObjectURL(objectUrl)
-    }).catch((error: unknown) => console.error('Source image could not be loaded.', error))
+    }).catch((error: unknown) => {
+      if (active) setFailed(true)
+      console.error('Source image could not be loaded.', error)
+    })
     return () => {
       active = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [asset.id])
-  return <img src={src} alt={`${name} original capture ${index + 1}`} />
+  return (
+    <div className={`model-original-image-frame${loaded ? ' is-loaded' : ''}`} aria-busy={!loaded && !failed}>
+      {!loaded && (
+        <div className="model-original-image-loading" role={failed ? 'status' : undefined}>
+          <img src={cycloneMark} alt="" />
+          {failed && <span>Image could not be loaded</span>}
+        </div>
+      )}
+      {src && <img src={src} alt={`${name} original capture ${index + 1}`} onLoad={() => setLoaded(true)} onError={() => setFailed(true)} />}
+    </div>
+  )
 }
 
 export default function LibraryPage() {
@@ -117,7 +173,11 @@ export default function LibraryPage() {
   const [scanType, setScanType] = useState('')
   const [isScanDrawerOpen, setIsScanDrawerOpen] = useState(() => window.location.pathname === '/scan')
   const [sourceImageIndex, setSourceImageIndex] = useState(0)
+  const [sourceImageNavigating, setSourceImageNavigating] = useState(false)
   const [selectedScan, setSelectedScan] = useState<ScanCard | null>(null)
+  const [scanActionError, setScanActionError] = useState('')
+  const [retryingScanId, setRetryingScanId] = useState<string | null>(null)
+  const [deletingScanId, setDeletingScanId] = useState<string | null>(null)
   const closeModalButtonRef = useRef<HTMLButtonElement>(null)
   const closeScanDrawerButtonRef = useRef<HTMLButtonElement>(null)
   const scanFileInputRef = useRef<HTMLInputElement>(null)
@@ -190,8 +250,18 @@ export default function LibraryPage() {
   const selectedJob: ScanJob | undefined = selectedScan?.jobs[0]
   const selectedArtifact = selectedScan ? resultArtifact(selectedScan) : null
   const selectedImages = selectedScan?.assets.filter((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/')) ?? []
+  const selectedImageIds = selectedImages.map((asset) => asset.id).join(',')
   const selectedExports = selectedScan?.artifacts.filter((artifact) => ['glb', 'obj', 'ply'].includes(fileExtension(artifact.filename))) ?? []
   const selectedExport = selectedExports.find((artifact) => fileExtension(artifact.filename).toUpperCase() === exportFormat)
+
+  useEffect(() => {
+    if (selectedImages.length < 2) return
+    const adjacent = [
+      selectedImages[(sourceImageIndex + 1) % selectedImages.length],
+      selectedImages[(sourceImageIndex - 1 + selectedImages.length) % selectedImages.length],
+    ]
+    adjacent.forEach((asset) => { void getSourceImageBlob(asset.id).catch(() => undefined) })
+  }, [selectedScan?.id, selectedImageIds, sourceImageIndex])
 
   useEffect(() => {
     const preferred = selectedExports.find((artifact) => fileExtension(artifact.filename).toUpperCase() === exportFormat)
@@ -215,8 +285,52 @@ export default function LibraryPage() {
   }
 
   function openModelWindow(scan: ScanCard) {
+    setScanActionError('')
     window.history.pushState({ scanId: scan.id }, '', `/model/${scan.id}`)
     setSelectedScan(scan)
+  }
+
+  async function changeSourceImage(direction: -1 | 1) {
+    if (sourceImageNavigating || selectedImages.length < 2) return
+    const nextIndex = (sourceImageIndex + direction + selectedImages.length) % selectedImages.length
+    setSourceImageNavigating(true)
+    try {
+      await preloadSourceImage(selectedImages[nextIndex].id)
+      setSourceImageIndex(nextIndex)
+    } catch (error) {
+      console.error('The next original image could not be prepared.', error)
+      setScanActionError('That original image could not be loaded. Try again.')
+    } finally {
+      setSourceImageNavigating(false)
+    }
+  }
+
+  async function retryScan(scanId: string) {
+    setScanActionError('')
+    setRetryingScanId(scanId)
+    try {
+      await scansApi.start(scanId)
+      await refreshScans()
+    } catch (error) {
+      setScanActionError(error instanceof Error ? error.message : 'The scan could not be retried.')
+    } finally {
+      setRetryingScanId(null)
+    }
+  }
+
+  async function deleteScan(scan: ScanCard) {
+    if (!window.confirm(`Delete “${scan.name}” and its uploaded files? This cannot be undone.`)) return
+    setScanActionError('')
+    setDeletingScanId(scan.id)
+    try {
+      await scansApi.remove(scan.id)
+      setScans((items) => items.filter((item) => item.id !== scan.id))
+      closeModelWindow()
+    } catch (error) {
+      setScanActionError(error instanceof Error ? error.message : 'The scan could not be deleted.')
+    } finally {
+      setDeletingScanId(null)
+    }
   }
 
   function closeModelWindow() {
@@ -482,6 +596,17 @@ export default function LibraryPage() {
                       <h2>{selectedScan.name}</h2>
                       <span className="model-detail-ready">{formatStatus(selectedScan.status)}</span>
                     </div>
+                    {selectedScan.status === 'failed' && (
+                      <div className="model-failed-actions">
+                        <button type="button" className="model-retry-button" disabled={retryingScanId === selectedScan.id || deletingScanId === selectedScan.id} onClick={() => { void retryScan(selectedScan.id) }}>
+                          {retryingScanId === selectedScan.id ? 'Retrying…' : 'Retry'}
+                        </button>
+                        <button type="button" className="model-delete-button" disabled={retryingScanId === selectedScan.id || deletingScanId === selectedScan.id} onClick={() => { void deleteScan(selectedScan) }}>
+                          {deletingScanId === selectedScan.id ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    )}
+                    {scanActionError && <p className="model-action-error" role="alert">{scanActionError}</p>}
                     <dl className="model-detail-list">
                       <div><dt>Type</dt><dd>{selectedScan.type}</dd></div>
                       <div><dt>Source</dt><dd>{selectedScan.source}</dd></div>
@@ -494,13 +619,14 @@ export default function LibraryPage() {
                     <section className="model-detail-section model-original-images">
                       <h2>Resources</h2>
                       {selectedImages.length ? (
-                        <div className="model-original-image-viewer">
+                        <div className="model-original-image-viewer" aria-busy={sourceImageNavigating}>
                           <SourceAssetImage asset={selectedImages[sourceImageIndex]} name={selectedScan.name} index={sourceImageIndex} />
-                          <button type="button" aria-label="Previous original image" disabled={selectedImages.length < 2} onClick={() => setSourceImageIndex((index) => (index - 1 + selectedImages.length) % selectedImages.length)}>
+                          {sourceImageNavigating && <div className="model-original-image-navigation-loading" aria-hidden="true"><img src={cycloneMark} alt="" /></div>}
+                          <button type="button" aria-label="Previous original image" disabled={selectedImages.length < 2 || sourceImageNavigating} onClick={() => { void changeSourceImage(-1) }}>
                             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4.5-5.5 5.5 5.5 5.5" /></svg>
                           </button>
                           <span>{sourceImageIndex + 1} / {selectedImages.length}</span>
-                          <button type="button" aria-label="Next original image" disabled={selectedImages.length < 2} onClick={() => setSourceImageIndex((index) => (index + 1) % selectedImages.length)}>
+                          <button type="button" aria-label="Next original image" disabled={selectedImages.length < 2 || sourceImageNavigating} onClick={() => { void changeSourceImage(1) }}>
                             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4.5 5.5 5.5-5.5 5.5" /></svg>
                           </button>
                         </div>
