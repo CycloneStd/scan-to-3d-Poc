@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import shutil
 import tempfile
 import uuid
 from datetime import timedelta
@@ -21,6 +23,7 @@ from ..services.uploads import validate_magic, validate_upload
 from ..worker import celery_app
 
 router = APIRouter(tags=["scans"])
+logger = logging.getLogger(__name__)
 
 
 def owned_scan(db: Session, scan_id: uuid.UUID, user_id: uuid.UUID, *, lock: bool = False) -> Scan:
@@ -129,19 +132,52 @@ def rename_scan(scan_id: uuid.UUID, payload: ScanCreate, db: Session = Depends(g
 @router.delete("/scans/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_scan(scan_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_verified_user)):
     scan = owned_scan(db, scan_id, user.id, lock=True)
-    if scan.status in {"queued", "processing"}:
-        raise HTTPException(status_code=409, detail="Wait for the queued or running job before deleting this scan")
-    assets = list(db.scalars(select(ScanAsset).where(ScanAsset.scan_id == scan.id)))
-    artifacts = list(db.scalars(select(ScanArtifact).where(ScanArtifact.scan_id == scan.id)))
-    keys = [asset.storage_key for asset in assets] + [artifact.storage_key for artifact in artifacts]
+    jobs = list(db.scalars(select(ScanJob).where(ScanJob.scan_id == scan.id)))
+    active_jobs = [job for job in jobs if job.status in {"queued", "running"}]
+    running_job_ids = {job.id for job in active_jobs if job.status == "running"}
+    job_ids = [job.id for job in jobs]
+    celery_task_ids = [job.celery_task_id for job in active_jobs if job.celery_task_id]
+    storage_prefix = f"users/{user.id}/scans/{scan.id}/"
+    scan.status = "deleting"
+    for job in active_jobs:
+        job.status = "cancelled"
+        job.finished_at = utcnow()
+    db.commit()
+    for task_id in celery_task_ids:
+        try:
+            celery_app.control.revoke(task_id)
+        except Exception:
+            # A running worker also checks for the deleted job and stops its pipeline.
+            logger.exception("Could not revoke queued scan task %s", task_id)
+    try:
+        storage.delete_prefix(storage_prefix)
+    except Exception:
+        logger.exception("Could not delete stored files under scan prefix %s", storage_prefix)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The scan was stopped, but its stored files could not be deleted. Retry deletion.",
+        )
+
+    # A live worker removes its own directory after it observes cancellation. All other
+    # job directories can be removed here, before the job IDs disappear through cascade.
+    root = get_settings().pipeline_work_root.resolve()
+    try:
+        for job_id in job_ids:
+            if job_id in running_job_ids:
+                continue
+            path = (root / str(job_id)).resolve()
+            if path.is_relative_to(root) and path.exists():
+                shutil.rmtree(path)
+    except OSError:
+        logger.exception("Could not remove pipeline work for scan %s", scan_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The scan files were removed, but temporary processing files could not be deleted. Retry deletion.",
+        )
+
+    scan = owned_scan(db, scan_id, user.id, lock=True)
     db.delete(scan)
     db.commit()
-    for key in keys:
-        try:
-            storage.delete(key)
-        except Exception:
-            # An orphaned object is safe; scheduled bucket lifecycle cleanup can remove it later.
-            pass
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

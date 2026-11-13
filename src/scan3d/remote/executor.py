@@ -199,6 +199,16 @@ class ColabExecutor:
                   "colab.research.google.com (Runtime > Manage sessions). It may still be billing.",
                   self.session, self.session)
 
+    def cancel_job(self, job_id: str) -> bool:
+        """Stop the Colab runtime only when it still owns the requested reconstruction job."""
+        state = self.remote_status()
+        if state.get("job_json_id") != job_id or not state.get("pid"):
+            return False
+        if not self._try_colab("stop", "-s", self.session, timeout=120):
+            raise RuntimeError(f"could not stop Colab session '{self.session}': {self.last_output[-400:]}")
+        self.have_session = False
+        return True
+
     @contextmanager
     def open_session(self, keep: bool = False):
         self.new()

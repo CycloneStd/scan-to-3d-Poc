@@ -38,6 +38,11 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .library-empty-state img { width: 48px; height: 48px; filter: brightness(0) invert(1); }
 .library-empty-state p { margin: 0; font-size: 16px; font-weight: 500; }
 .library-item-card { position: relative; min-width: 0; min-height: 360px; overflow: hidden; background-color: var(--app-color-surface-bg-low); }
+.library-card-delete { position: absolute; z-index: 4; top: 12px; right: 12px; display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 14%); border-radius: 10px; background: rgb(20 21 22 / 88%); color: #ffb4a9; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.library-card-delete:hover:not(:disabled) { background: #3a2528; }
+.library-card-delete:disabled { opacity: .7; cursor: wait; }
+.library-card-delete:focus-visible { outline: 2px solid #f4f4f4; outline-offset: 2px; }
+.library-card-delete svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
 .library-card-preview { position: relative; }
 .library-card-link { position: absolute; z-index: 2; inset: 0; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
 .library-card-link:focus-visible { outline: 2px solid #f4f4f3; outline-offset: -4px; }

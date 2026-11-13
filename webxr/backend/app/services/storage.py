@@ -93,5 +93,27 @@ class Storage:
         else:
             self._local_path(key).unlink(missing_ok=True)
 
+    def delete_prefix(self, prefix: str) -> None:
+        """Remove every stored object for a scan, including objects left without DB rows."""
+        if not prefix or not prefix.endswith("/"):
+            raise ValueError("Storage prefixes must be non-empty and directory-scoped")
+        if self.s3:
+            paginator = self.s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.settings.storage_s3_bucket, Prefix=prefix):
+                objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+                for start in range(0, len(objects), 1000):
+                    response = self.s3.delete_objects(
+                        Bucket=self.settings.storage_s3_bucket,
+                        Delete={"Objects": objects[start:start + 1000], "Quiet": True},
+                    )
+                    errors = response.get("Errors", [])
+                    if errors:
+                        raise RuntimeError(f"Could not delete {len(errors)} object(s) under storage prefix")
+            return
+
+        path = self._local_path(prefix.rstrip("/"))
+        if path.exists():
+            shutil.rmtree(path)
+
 
 storage = Storage()

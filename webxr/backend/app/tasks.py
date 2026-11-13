@@ -37,6 +37,53 @@ def _set_job(job_id: uuid.UUID, **updates) -> None:
         db.commit()
 
 
+def _job_cancelled_or_deleted(job_id: uuid.UUID) -> bool:
+    with SessionLocal() as db:
+        job = db.get(ScanJob, job_id)
+        if not job or job.status == "cancelled":
+            return True
+        scan = db.get(Scan, job.scan_id)
+        return not scan or scan.status == "deleting"
+
+
+def _terminate_pipeline(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            process.terminate()
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    except ProcessLookupError:
+        pass
+
+
+def _cancel_remote_job(job_id: uuid.UUID, config_path: Path) -> None:
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        remote = config.get("remote") or {}
+        if not remote.get("session"):
+            return
+        from scan3d.remote.executor import ColabExecutor
+
+        executor = ColabExecutor(remote["session"], remote.get("gpu"), remote.get("high_mem", True),
+                                 remote.get("auth"), fallback_gpus=remote.get("gpu_fallbacks", []))
+        if executor.cancel_job(str(job_id)):
+            logger.info("Stopped Colab runtime for deleted scan job %s", job_id)
+    except Exception:
+        logger.exception("Could not stop Colab runtime for deleted scan job %s", job_id)
+
+
 def _progress_from_manifest(manifest_path: Path, stages: list[str]) -> tuple[int, str | None, dict]:
     if not manifest_path.exists():
         return 0, "starting", {}
@@ -139,7 +186,7 @@ def purge_old_pipeline_work():
     cutoff = utcnow() - timedelta(days=settings.pipeline_work_retention_days)
     with SessionLocal() as db:
         ids = list(db.scalars(select(ScanJob.id).where(
-            ScanJob.status.in_(["succeeded", "failed"]), ScanJob.finished_at < cutoff
+            ScanJob.status.in_(["succeeded", "failed", "cancelled"]), ScanJob.finished_at < cutoff
         )))
     root = settings.pipeline_work_root.resolve()
     removed = 0
@@ -163,6 +210,8 @@ def run_scan_job(self, job_id_text: str):
         if not scan:
             _set_job(job_id, status="failed", error_code="SCAN_NOT_FOUND", error_message="The scan no longer exists", finished_at=utcnow())
             return {"status": "failed"}
+        if job.status == "cancelled" or scan.status == "deleting":
+            return {"status": "cancelled"}
         assets = list(db.scalars(select(ScanAsset).where(ScanAsset.scan_id == scan.id, ScanAsset.role == "input", ScanAsset.status == "uploaded")))
         owner_id, scan_id = scan.owner_id, scan.id
         if not assets:
@@ -179,6 +228,9 @@ def run_scan_job(self, job_id_text: str):
     process = None
     try:
         photos_dir, videos = _copy_inputs(job_id, job_dir, assets)
+        if _job_cancelled_or_deleted(job_id):
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return {"status": "cancelled"}
         config_path = _create_config(job_dir, scan, photos_dir, videos)
         (job_dir / "scan-meta.json").write_text(json.dumps({"name": scan_name, "type": scan_type, "description": description}), encoding="utf-8")
         run_dir = job_dir / "runs" / str(job_id)
@@ -199,12 +251,13 @@ def run_scan_job(self, job_id_text: str):
             )
             last_state: tuple[int, str | None] | None = None
             while process.poll() is None:
+                if _job_cancelled_or_deleted(job_id):
+                    _terminate_pipeline(process)
+                    _cancel_remote_job(job_id, config_path)
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    return {"status": "cancelled"}
                 if time.monotonic() - started > settings.pipeline_timeout_seconds:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    try:
-                        process.wait(timeout=30)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
+                    _terminate_pipeline(process)
                     raise TimeoutError("The scan exceeded the configured processing time limit")
                 progress, current_stage, metrics = _progress_from_manifest(manifest_path, stages)
                 state = (progress, current_stage)
@@ -217,28 +270,45 @@ def run_scan_job(self, job_id_text: str):
             logger.error("scan3d failed for job %s: %s", job_id, tail)
             raise RuntimeError("The reconstruction pipeline failed. Review the job details and retry.")
 
+        if _job_cancelled_or_deleted(job_id):
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return {"status": "cancelled"}
+
         _, _, stage_metrics = _progress_from_manifest(manifest_path, stages)
         artifacts = _upload_artifacts(job, scan, run_dir)
+        cancelled = False
         with SessionLocal() as db:
-            db.add_all(artifacts)
             job_record = db.get(ScanJob, job_id)
-            scan_record = db.get(Scan, scan_id)
-            if job_record:
+            scan_record = db.scalar(select(Scan).where(Scan.id == scan_id).with_for_update())
+            if (not job_record or job_record.status == "cancelled" or not scan_record
+                    or scan_record.status == "deleting"):
+                cancelled = True
+            else:
+                db.add_all(artifacts)
                 job_record.status = "succeeded"
                 job_record.progress = 100
                 job_record.current_stage = "complete"
                 job_record.metrics = {"stages": stage_metrics, "artifact_count": len(artifacts)}
                 job_record.finished_at = utcnow()
-            if scan_record:
                 scan_record.status = "ready"
-            db.commit()
+                db.commit()
+        if cancelled:
+            for artifact in artifacts:
+                try:
+                    storage.delete(artifact.storage_key)
+                except Exception:
+                    logger.exception("Could not remove artifact from cancelled scan %s", scan_id)
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return {"status": "cancelled"}
         return {"status": "succeeded", "artifacts": len(artifacts)}
     except Exception as exc:
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+        if process is not None:
+            _terminate_pipeline(process)
+        if _job_cancelled_or_deleted(job_id):
+            if "config_path" in locals() and config_path.is_file():
+                _cancel_remote_job(job_id, config_path)
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return {"status": "cancelled"}
         logger.exception("Scan job %s failed", job_id)
         with SessionLocal() as db:
             job_record = db.get(ScanJob, job_id)

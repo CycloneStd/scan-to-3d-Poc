@@ -319,7 +319,11 @@ export default function LibraryPage() {
   }
 
   async function deleteScan(scan: ScanCard) {
-    if (!window.confirm(`Delete “${scan.name}” and its uploaded files? This cannot be undone.`)) return
+    const active = scan.status === 'queued' || scan.status === 'processing'
+    const message = active
+      ? `Delete “${scan.name}” and stop its queued or running scan? This cannot be undone.`
+      : `Delete “${scan.name}” and its uploaded files? This cannot be undone.`
+    if (!window.confirm(message)) return
     setScanActionError('')
     setDeletingScanId(scan.id)
     try {
@@ -517,6 +521,20 @@ export default function LibraryPage() {
         <div className="library-card-grid">
           {visibleScans.map((scan) => (
             <article className="library-item-card rounded-surface-md bg-surface-low" key={scan.id}>
+              <button
+                className="library-card-delete"
+                type="button"
+                aria-label={`${deletingScanId === scan.id ? 'Deleting' : 'Delete'} ${scan.name}`}
+                disabled={deletingScanId === scan.id}
+                onClick={() => { void deleteScan(scan) }}
+              >
+                {deletingScanId === scan.id ? 'Deleting…' : (
+                  <>
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13M8 5.5v-2h4v2m-6 0 .7 11h6.6l.7-11M8.5 8.5v5m3-5v5" /></svg>
+                    Delete
+                  </>
+                )}
+              </button>
               <div className="library-card-preview">
                 <div className="library-card-media">
                   <PreviewPlaceholder />
