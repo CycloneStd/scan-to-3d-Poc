@@ -18,4 +18,4 @@ RUN mkdir -p /data /home/mambauser/.config/colab-cli \
     && chown -R mambauser:mambauser /data /opt/conda /home/mambauser/.config
 USER mambauser
 WORKDIR /repo/webxr/backend
-CMD ["micromamba", "run", "--name", "base", "celery", "-A", "app.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+CMD ["micromamba", "run", "--name", "base", "python", "-m", "app.worker_entrypoint"]
