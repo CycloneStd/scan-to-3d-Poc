@@ -18,8 +18,7 @@ REQUIRED = {
 
 DEFAULTS = {
     "undistort": {"max_image_size": 2000},
-    "dense": {"geom_consistency": True,
-              "colmap_specs": ["colmap=4.2.1=cuda_129*", "colmap=4.2.1=cuda_134*"]},
+    "dense": {"geom_consistency": True, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
     "mesh": {"texture": True,"target_face_ratio":0.05},
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},

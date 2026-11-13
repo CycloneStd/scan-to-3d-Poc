@@ -10,6 +10,7 @@ import traceback
 import hashlib
 import glob
 import shlex
+import sqlite3
 from collections import deque
 
 JOB = "/content/job.json"
@@ -256,18 +257,41 @@ def reconstruct_mesh(job):
             attempt["failed"] = "feature matching: " + tail[-1000:]
             continue
 
+        with sqlite3.connect(db) as connection:
+            pair_stats = connection.execute(
+                "SELECT COUNT(*), COALESCE(MAX(rows), 0), COALESCE(SUM(rows), 0) "
+                "FROM two_view_geometries WHERE rows > 0"
+            ).fetchone()
+        attempt["verified_pairs"] = int(pair_stats[0])
+        attempt["max_pair_inliers"] = int(pair_stats[1])
+        attempt["verified_pair_inliers"] = int(pair_stats[2])
+
         print("@@RECON_STAGE@@sparse", flush=True)
+        mapper_cmd = colmap + [mapper_commands[mapper], "--database_path", db,
+                               "--image_path", images, "--output_path", models]
         started = time.time()
-        rc, tail = stream(colmap + [mapper_commands[mapper], "--database_path", db,
-                                     "--image_path", images, "--output_path", models])
+        rc, tail = stream(mapper_cmd)
         attempt["seconds_mapper"] = round(time.time() - started, 1)
-        if rc != 0:
-            attempt["failed"] = "sparse mapping: " + tail[-1000:]
-            continue
+        first_error = None
         candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
         candidates = [path for path in candidates if path.is_dir()]
+        if (rc != 0 or not candidates) and mapper == "incremental":
+            first_error = tail[-1000:]
+            shutil.rmtree(models, ignore_errors=True)
+            os.makedirs(models)
+            relaxed_cmd = mapper_cmd + ["--Mapper.init_min_num_inliers", "30",
+                                        "--Mapper.init_min_tri_angle", "4"]
+            started = time.time()
+            rc, tail = stream(relaxed_cmd)
+            attempt["seconds_mapper"] += round(time.time() - started, 1)
+            attempt["mapper_retry"] = {"init_min_num_inliers": 30, "init_min_tri_angle": 4}
+            candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
+            candidates = [path for path in candidates if path.is_dir()]
         if not candidates:
-            attempt["failed"] = "sparse mapper produced no models: " + tail[-1000:]
+            attempt["failed"] = "sparse mapper produced no model. "
+            if first_error:
+                attempt["failed"] += "Default mapper output: " + first_error + "\n"
+            attempt["failed"] += tail[-1000:]
             continue
 
         def group_counts(path):
