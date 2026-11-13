@@ -17,7 +17,7 @@ from ..utils.proc import run
 class ArStage(Stage):
     name = "ar"
     dir_name = "11_ar"
-    requires = ("mesh", "sparse")
+    requires = ("mesh", "reconstruction")
 
     def config_slice(self, cfg):
         return {"ar": cfg["ar"], "flip_v": cfg["export"]["flip_v"],
@@ -40,8 +40,9 @@ class ArStage(Stage):
         run([binary, "mesh_simplifier", "--input_path", full, "--output_path", small,
              "--MeshSimplification.target_face_ratio", ratio], log_file=log_file)
 
+        reconstruction_dir = ctx.run.stage_dir("06_reconstruction")
         textured = out / "textured"
-        run([binary, "mesh_texturer", "--workspace_path", ctx.run.stage_dir("05_undistort") / "workspace",
+        run([binary, "mesh_texturer", "--workspace_path", reconstruction_dir / "workspace",
              "--input_path", small, "--output_path", textured], log_file=log_file)
 
         obj = out / "mesh_ar.obj"
@@ -60,8 +61,7 @@ class ArStage(Stage):
             raise RuntimeError(f"Could not write texture image {out / 'texture_ar.jpg'}")
         shutil.rmtree(textured)
 
-        sparse = ctx.manifest.get("sparse")["metrics"]
-        images_txt = (ctx.run.stage_dir(f"04_sparse_{sparse['mapper']}") / "best_model_txt" / "images.txt")
+        images_txt = reconstruction_dir / "best_model_txt" / "images.txt"
         up, coherence, camera_count = estimate_up(images_txt)
         info = orient_obj(obj, up, ar.get("scale_factor"))
 

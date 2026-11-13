@@ -177,6 +177,202 @@ def dense(job):
 
     raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
 
+
+def reconstruct_mesh(job):
+    """Run feature extraction through dense fusion on Colab, away from Railway's small worker RAM."""
+    assemble(job)
+    work = "/content/reconstruction_work"
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    with tarfile.open(job["workspace_tar"]) as tar:
+        tar.extractall(work)
+    source = f"{work}/input"
+    images = f"{source}/images"
+    image_list = f"{source}/image_list.txt"
+    if not os.path.isfile(image_list) or not os.path.isdir(images):
+        raise RuntimeError("The uploaded reconstruction bundle is missing its images or image list")
+    if not ensure_micromamba():
+        raise RuntimeError("micromamba could not be downloaded")
+    gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
+    attempts = []
+    mapper_commands = {"incremental": "mapper", "global": "global_mapper"}
+    mapper = job["mapper"]
+    if mapper not in mapper_commands:
+        raise ValueError(f"Unsupported sparse mapper: {mapper}")
+
+    for index, spec in enumerate(job["colmap_specs"]):
+        env = f"/content/reconstruction_colmap_{index}"
+        attempt = {"spec": spec}
+        attempts.append(attempt)
+        rc, tail = stream([MM, "create", "-y", "-p", env, "-c", "conda-forge", spec])
+        if rc != 0:
+            attempt["failed"] = "install: " + tail[-600:]
+            continue
+
+        colmap = [MM, "run", "-p", env, "colmap"]
+        banner = sh(" ".join(colmap) + " -h 2>&1 | head -3")
+        attempt["banner"] = banner
+        if "without GPU" in banner:
+            attempt["failed"] = "the installed COLMAP build has no GPU support"
+            continue
+
+        db = f"{work}/database.db"
+        models = f"{work}/models"
+        undistorted = f"{work}/workspace"
+        for path in (db, models, undistorted):
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            elif os.path.exists(path):
+                os.remove(path)
+        for path in glob.glob(f"{work}/model_txt_*"):
+            shutil.rmtree(path, ignore_errors=True)
+
+        print("@@RECON_STAGE@@features", flush=True)
+        started = time.time()
+        rc, tail = stream(colmap + ["feature_extractor", "--database_path", db,
+                                     "--image_path", images, "--image_list_path", image_list,
+                                     "--ImageReader.single_camera_per_folder", "1",
+                                     "--ImageReader.camera_model", job["camera_model"],
+                                     "--FeatureExtraction.use_gpu", "1",
+                                     "--FeatureExtraction.max_image_size", str(job["max_image_size"]),
+                                     "--FeatureExtraction.num_threads", str(job["num_threads"])])
+        attempt["seconds_features"] = round(time.time() - started, 1)
+        if rc != 0:
+            attempt["failed"] = "feature extraction: " + tail[-1000:]
+            continue
+
+        matcher = job["matcher"]
+        if matcher not in ("exhaustive", "sequential"):
+            raise ValueError(f"Unsupported feature matcher: {matcher}")
+        match_cmd = colmap + [f"{matcher}_matcher", "--database_path", db,
+                              "--FeatureMatching.use_gpu", "1"]
+        if matcher == "sequential":
+            match_cmd += ["--SequentialMatching.overlap", str(job["sequential_overlap"])]
+        started = time.time()
+        rc, tail = stream(match_cmd)
+        attempt["seconds_matching"] = round(time.time() - started, 1)
+        if rc != 0:
+            attempt["failed"] = "feature matching: " + tail[-1000:]
+            continue
+
+        print("@@RECON_STAGE@@sparse", flush=True)
+        started = time.time()
+        rc, tail = stream(colmap + [mapper_commands[mapper], "--database_path", db,
+                                     "--image_path", images, "--output_path", models])
+        attempt["seconds_mapper"] = round(time.time() - started, 1)
+        if rc != 0:
+            attempt["failed"] = "sparse mapping: " + tail[-1000:]
+            continue
+        candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
+        candidates = [path for path in candidates if path.is_dir()]
+        if not candidates:
+            attempt["failed"] = "sparse mapper produced no models: " + tail[-1000:]
+            continue
+
+        def group_counts(path):
+            lines = [line for line in path.read_text().splitlines() if not line.startswith("#")]
+            counts = {}
+            for line in lines[::2]:
+                if not line.strip():
+                    continue
+                group = line.split()[-1].split("/")[0]
+                counts[group] = counts.get(group, 0) + 1
+            return counts
+
+        model_counts = {}
+        for candidate in candidates:
+            text_dir = f"{work}/model_txt_{candidate.name}"
+            rc, tail = stream(colmap + ["model_converter", "--input_path", str(candidate),
+                                         "--output_path", text_dir, "--output_type", "TXT"])
+            if rc == 0 and os.path.isfile(f"{text_dir}/images.txt"):
+                model_counts[candidate] = group_counts(Path(text_dir) / "images.txt")
+        if not model_counts:
+            attempt["failed"] = "could not convert sparse models to text"
+            continue
+        best_model = max(model_counts, key=lambda path: sum(model_counts[path].values()))
+        best_txt = f"{work}/model_txt_{best_model.name}"
+        registered = model_counts[best_model]
+        if sum(registered.values()) < 2:
+            attempt["failed"] = f"only {sum(registered.values())} image(s) registered; at least two are needed"
+            continue
+
+        print("@@RECON_STAGE@@undistort", flush=True)
+        started = time.time()
+        rc, tail = stream(colmap + ["image_undistorter", "--image_path", images,
+                                     "--input_path", str(best_model), "--output_path", undistorted,
+                                     "--output_type", "COLMAP", "--max_image_size",
+                                     str(job["undistort_max_image_size"])])
+        seconds_undistort = round(time.time() - started, 1)
+        if rc != 0:
+            attempt["failed"] = "image undistortion: " + tail[-1000:]
+            continue
+
+        print("@@RECON_STAGE@@dense", flush=True)
+        started = time.time()
+        rc, tail = stream(colmap + ["patch_match_stereo", "--workspace_path", undistorted,
+                                     "--workspace_format", "COLMAP", "--PatchMatchStereo.geom_consistency",
+                                     "true" if job["geom_consistency"] else "false"])
+        seconds_patch_match = round(time.time() - started, 1)
+        if rc != 0:
+            attempt["failed"] = "patch match stereo: " + tail[-1000:]
+            continue
+
+        started = time.time()
+        fused = f"{work}/fused.ply"
+        rc, tail = stream(colmap + ["stereo_fusion", "--workspace_path", undistorted,
+                                     "--workspace_format", "COLMAP", "--input_type", "geometric",
+                                     "--output_path", fused])
+        seconds_fusion = round(time.time() - started, 1)
+        if rc != 0 or not os.path.isfile(fused):
+            attempt["failed"] = "stereo fusion: " + tail[-1000:]
+            continue
+
+        result_dir = f"{work}/result"
+        shutil.rmtree(result_dir, ignore_errors=True)
+        os.makedirs(f"{result_dir}/workspace", exist_ok=True)
+        shutil.copy2(fused, f"{result_dir}/fused.ply")
+        for name in ("images", "sparse", "project.ini"):
+            source_path = f"{undistorted}/{name}"
+            if os.path.isdir(source_path):
+                shutil.copytree(source_path, f"{result_dir}/workspace/{name}")
+            elif os.path.isfile(source_path):
+                shutil.copy2(source_path, f"{result_dir}/workspace/{name}")
+        shutil.copytree(best_txt, f"{result_dir}/best_model_txt")
+        result_tar = "/content/reconstruction_result.tar.gz"
+        if os.path.exists(result_tar):
+            os.remove(result_tar)
+        with tarfile.open(result_tar, "w:gz") as archive:
+            for name in ("fused.ply", "workspace", "best_model_txt"):
+                archive.add(f"{result_dir}/{name}", arcname=name)
+            if os.path.isfile(LOG):
+                archive.add(LOG, arcname="reconstruction.log")
+        result_parts = split_result(result_tar, "reconstruction_result.part", job["chunk_bytes"])
+        fused_points = 0
+        with open(fused, "rb") as fh:
+            for line in fh:
+                if line.startswith(b"element vertex "):
+                    fused_points = int(line.split()[2])
+                if line.strip() == b"end_header":
+                    break
+        return {
+            "gpu": gpu,
+            "colmap_spec": spec,
+            "matcher": matcher,
+            "best_model": best_model.name,
+            "registered_by_group": registered,
+            "seconds_features": attempt["seconds_features"],
+            "seconds_matching": attempt["seconds_matching"],
+            "seconds_mapper": attempt["seconds_mapper"],
+            "seconds_undistort": seconds_undistort,
+            "seconds_patch_match": seconds_patch_match,
+            "seconds_fusion": seconds_fusion,
+            "fused_points": fused_points,
+            "result_parts": result_parts,
+            "result_sha256": sha256(result_tar),
+        }
+
+    raise RuntimeError("All COLMAP CUDA reconstruction attempts failed:\n" + json.dumps(attempts, indent=2))
+
 def ensure_micromamba():
     def works():
         return os.path.exists(MM) and subprocess.run([MM, "--version"], capture_output=True).returncode == 0
@@ -504,7 +700,8 @@ def gsplat_check(job):
     return result
 
 
-ACTIONS = {"probe": probe, "dense": dense, "splat": splat, "gsplat_check": gsplat_check}
+ACTIONS = {"probe": probe, "dense": dense, "reconstruct_mesh": reconstruct_mesh,
+           "splat": splat, "gsplat_check": gsplat_check}
 
 
 def main():

@@ -11,7 +11,7 @@ from ..utils.proc import run
 class MeshStage(Stage):
     name = "mesh"
     dir_name = "07_mesh"
-    requires = ("dense",)
+    requires = ("reconstruction",)
 
     def config_slice(self, cfg):
         return {"mesh": cfg["mesh"], "colmap": cm.version(cfg["colmap"]["binary"])}
@@ -24,7 +24,8 @@ class MeshStage(Stage):
         logf = ctx.run.root / "logs" / "mesh.log"
 
         full = out / "meshed-poisson.ply"
-        r1 = run([binary, "poisson_mesher", "--input_path", ctx.run.stage_dir("06_dense") / "fused.ply",
+        reconstruction_dir = ctx.run.stage_dir("06_reconstruction")
+        r1 = run([binary, "poisson_mesher", "--input_path", reconstruction_dir / "fused.ply",
                   "--output_path", full], log_file=logf)
         c = ply_counts(full)
         metrics = {"poisson_seconds": r1.seconds, "full_vertices": c.get("vertex"), "full_faces": c.get("face")}
@@ -44,7 +45,7 @@ class MeshStage(Stage):
 
         if ctx.cfg["mesh"]["texture"]:
             r3 = run([binary, "mesh_texturer",
-                      "--workspace_path", ctx.run.stage_dir("05_undistort") / "workspace",
+                      "--workspace_path", reconstruction_dir / "workspace",
                       "--input_path", mesh_for_texture, "--output_path", out / "textured"], log_file=logf)
             metrics["texture_seconds"] = r3.seconds
         metrics["files"] = sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file())

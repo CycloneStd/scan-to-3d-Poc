@@ -81,8 +81,12 @@ def deliver(run_dir: Path, out: Path) -> dict:
         (out / "mesh").mkdir()
         for name in ("model.obj", "model.mtl", "texture.png"):
             shutil.copy2(mesh_src / name, out / "mesh" / name)
-        mapper = (stages.get("sparse") or {}).get("metrics", {}).get("mapper", "incremental")
-        images_txt = run_dir / f"04_sparse_{mapper}" / "best_model_txt" / "images.txt"
+        reconstruction_metrics = metrics("reconstruction")
+        sparse_metrics = metrics("sparse")
+        mapper = sparse_metrics.get("mapper", "incremental")
+        images_txt = run_dir / "06_reconstruction" / "best_model_txt" / "images.txt"
+        if not images_txt.exists():
+            images_txt = run_dir / f"04_sparse_{mapper}" / "best_model_txt" / "images.txt"
         if images_txt.exists():
             up, _, _ = estimate_up(images_txt)
             info = orient_obj(out / "mesh" / "model.obj", up, scale)
@@ -94,14 +98,19 @@ def deliver(run_dir: Path, out: Path) -> dict:
         missing += ["mesh/model.obj", "mesh/model.mtl", "mesh/texture.png"]
 
     sparse_metrics, splat_metrics, mesh_metrics = metrics("sparse"), metrics("splat"), metrics("mesh")
+    reconstruction_metrics = metrics("reconstruction")
     best = sparse_metrics.get("best_model") or {}
+    registered_by_group = sparse_metrics.get("registered_by_group") or reconstruction_metrics.get("registered_by_group")
+    registered_images = best.get("registered_images")
+    if registered_images is None and registered_by_group:
+        registered_images = sum(registered_by_group.values())
     manifest = {
         "name": out.name,
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
         "source_run": run_dir.name,
         "quality": {
-            "sparse": {"registered_images": best.get("registered_images"),
-                       "by_group": sparse_metrics.get("registered_by_group"),
+            "sparse": {"registered_images": registered_images,
+                       "by_group": registered_by_group,
                        "mean_reprojection_error_px": best.get("mean_reprojection_error")},
             "mesh": {"faces_full": mesh_metrics.get("full_faces"), "faces_editable": mesh_metrics.get("mesh_faces")},
             "ar": {"faces": ar_report.get("faces"), "glb_bytes": ar_report.get("glb_bytes"),

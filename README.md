@@ -18,9 +18,7 @@ scan3d doctor
 ## Run
 Put photos in a folder and copy `configs/house.yaml`, setting `project.name` and `inputs.photos_dir`.
 ```bash
-scan3d run --config configs/mine.yaml --stages ingest,validate,features,sparse   # free CPU gate
-scan3d status --run-id <id>        # want: ~all images registered, 1 model
-scan3d run --config configs/mine.yaml --run-id <id>                              # GPU + mesh stages
+scan3d run --config configs/mine.yaml   # ingest/validate locally, COLMAP through dense reconstruction on Colab, then mesh/export locally
 scan3d report --run-id <id>
 ```
 Outputs: `runs/<id>/08_export/` (OBJ, GLB, renders) and `runs/<id>/report.md`.
@@ -34,7 +32,7 @@ The web app, API, and reconstruction worker setup is documented in [webxr/backen
 See `docs/limitations.md`. A 125-photo dense run used about 80 minutes of T4 time.
 
 ## Tracks
-- Mesh track (editable, AR): `scan3d run --config configs/<name>.yaml` (ingest, validate, features, sparse, undistort, dense on Colab, mesh, export, AR export)
+- Mesh track (editable, AR): `scan3d run --config configs/<name>.yaml` (ingest and validate locally; feature extraction through dense reconstruction in one Colab job; mesh, export, and AR export locally)
 - Splat track (web viewer): `scan3d run --config configs/<name>.yaml --track splat`
 - Recommended splat settings are in `configs/house.yaml` (768 px images, scaled schedule, 4 upload workers).
 - Handoff folder: `scan3d deliver --run-id <id> --name <name>`

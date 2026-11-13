@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Callable
 
 from .bundle import split_file
 
@@ -349,7 +350,8 @@ class ColabExecutor:
         self.download("/content/result.json", out_dir / "result.json")
         return json.loads((out_dir / "result.json").read_text())
 
-    def run_background(self, poll_s: int = 30, max_hours: float = 8.0, attach_pid: int | None = None) -> None:
+    def run_background(self, poll_s: int = 30, max_hours: float = 8.0, attach_pid: int | None = None,
+                       on_output: Callable[[str], None] | None = None) -> None:
         """Launch colab_entry.py detached on the VM (or attach to a running one), then poll until it finishes."""
         if attach_pid is None:
             self.upload(ENTRY, "/content/colab_entry.py")
@@ -374,6 +376,8 @@ class ColabExecutor:
                 continue
             if st["chunk"]:
                 print(st["chunk"], end="", flush=True)
+                if on_output:
+                    on_output(st["chunk"])
             offset = st["offset"]
             if st["done"]:
                 return
@@ -383,9 +387,10 @@ class ColabExecutor:
                 time.sleep(poll_s)
         raise RuntimeError(f"the remote job did not finish within {max_hours} hours")
 
-    def run_job(self, job: dict, out_dir: Path, uploads: dict[Path, str] | None = None) -> dict:
+    def run_job(self, job: dict, out_dir: Path, uploads: dict[Path, str] | None = None,
+                on_output: Callable[[str], None] | None = None) -> dict:
         self.put_job(job, out_dir)
         for local, remote in (uploads or {}).items():
             self.upload(local, remote)
-        self.run_background()
+        self.run_background(on_output=on_output)
         return self.fetch_result(out_dir)
