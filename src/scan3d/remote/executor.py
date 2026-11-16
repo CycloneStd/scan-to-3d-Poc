@@ -119,12 +119,25 @@ class ColabExecutor:
         if not self._try_colab(*args, timeout=timeout):
             raise RuntimeError(f"colab {' '.join(args[:2])} failed: {self.last_output[-400:]}")
 
-    def _exec_code(self, code: str, timeout: int = 120) -> str:
-        p = subprocess.run(self._base() + ["exec", "-s", self.session], input=code, text=True,
-                           capture_output=True, timeout=timeout)
-        if p.returncode != 0:
-            raise RuntimeError(f"colab exec failed: {(p.stderr or p.stdout)[-300:]}")
-        return p.stdout
+    def _exec_code(self, code: str, timeout: int = 300) -> str:
+        last_exc = None
+        for attempt in range(2):
+            try:
+                p = subprocess.run(self._base() + ["exec", "-s", self.session], input=code, text=True,
+                                   capture_output=True, timeout=timeout)
+                if p.returncode != 0:
+                    raise RuntimeError(f"colab exec failed: {(p.stderr or p.stdout)[-300:]}")
+                return p.stdout
+            except subprocess.TimeoutExpired as exc:
+                last_exc = exc
+                if attempt == 0:
+                    log.warning("Colab exec timed out after %ds, retrying once...", timeout)
+                    time.sleep(5)
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("colab exec failed")
 
     # ---- session lifecycle ---------------------------------------------------------------------
     def alive(self) -> bool:
@@ -182,7 +195,7 @@ class ColabExecutor:
         while not self.alive():
             if time.time() - started >= lost_after_s:
                 log.warning("Runtime unreachable for %ds; replacing it", lost_after_s)
-                self._try_colab("stop", "-s", self.session, timeout=120)
+                self._try_colab("stop", "-s", self.session, timeout=180)
                 self.new()
                 self.wait_ready()
                 return
@@ -191,7 +204,7 @@ class ColabExecutor:
 
     def release(self) -> None:
         for _ in range(3):
-            if self._try_colab("stop", "-s", self.session, timeout=120):
+            if self._try_colab("stop", "-s", self.session, timeout=180):
                 self.have_session = False
                 return
             time.sleep(10)
@@ -204,7 +217,7 @@ class ColabExecutor:
         state = self.remote_status()
         if state.get("job_json_id") != job_id or not state.get("pid"):
             return False
-        if not self._try_colab("stop", "-s", self.session, timeout=120):
+        if not self._try_colab("stop", "-s", self.session, timeout=180):
             raise RuntimeError(f"could not stop Colab session '{self.session}': {self.last_output[-400:]}")
         self.have_session = False
         return True
