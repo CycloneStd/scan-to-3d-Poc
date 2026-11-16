@@ -244,12 +244,15 @@ def run_scan_job(self, job_id_text: str):
                 scan_record.status = "processing"
                 db.commit()
         started = time.monotonic()
+        logger.info("[job %s] Starting pipeline for scan %s (%s) with %d input asset(s)",
+                    str(job_id)[:8], scan_id, scan_name, len(assets))
         with log_path.open("wb") as log_file:
             process = subprocess.Popen(
                 ["scan3d", "run", "--config", str(config_path), "--run-id", str(job_id), "--track", settings.pipeline_track],
                 cwd=job_dir, stdout=log_file, stderr=subprocess.STDOUT, shell=False, start_new_session=True,
             )
             last_state: tuple[int, str | None] | None = None
+            log_pos = 0
             while process.poll() is None:
                 if _job_cancelled_or_deleted(job_id):
                     _terminate_pipeline(process)
@@ -259,10 +262,29 @@ def run_scan_job(self, job_id_text: str):
                 if time.monotonic() - started > settings.pipeline_timeout_seconds:
                     _terminate_pipeline(process)
                     raise TimeoutError("The scan exceeded the configured processing time limit")
+
+                # Stream key milestone lines from pipeline.log to Celery worker stdout
+                if log_path.exists():
+                    try:
+                        with log_path.open("r", encoding="utf-8", errors="replace") as reader:
+                            reader.seek(log_pos)
+                            chunk = reader.read()
+                            log_pos = reader.tell()
+                            for line in chunk.splitlines():
+                                line_str = line.strip()
+                                if not line_str:
+                                    continue
+                                if any(kw in line_str for kw in ("scan3d.pipeline: [", "opened Colab session", "job completed on Colab", "colab_seconds", "Stopping session", "fused_points", "ERROR", "failed")):
+                                    if not any(noise in line_str for noise in ("downloaded part", "uploading part", "part 0")):
+                                        logger.info("[job %s] %s", str(job_id)[:8], line_str)
+                    except Exception:
+                        pass
+
                 progress, current_stage, metrics = _progress_from_manifest(manifest_path, stages)
                 state = (progress, current_stage)
                 if state != last_state:
                     _set_job(job_id, status="running", progress=progress, current_stage=current_stage, metrics={"stages": metrics})
+                    logger.info("[job %s] Stage: %s (%d%%)", str(job_id)[:8], current_stage or "starting", progress)
                     last_state = state
                 time.sleep(3)
         if process.returncode != 0:
@@ -284,6 +306,15 @@ def run_scan_job(self, job_id_text: str):
                     or scan_record.status == "deleting"):
                 cancelled = True
             else:
+                # On retry, remove any previous artifacts from earlier attempts of this scan
+                old_artifacts = list(db.scalars(select(ScanArtifact).where(ScanArtifact.scan_id == scan.id)))
+                for old in old_artifacts:
+                    try:
+                        storage.delete(old.storage_key)
+                    except Exception:
+                        pass
+                    db.delete(old)
+
                 db.add_all(artifacts)
                 job_record.status = "succeeded"
                 job_record.progress = 100
@@ -292,6 +323,8 @@ def run_scan_job(self, job_id_text: str):
                 job_record.finished_at = utcnow()
                 scan_record.status = "ready"
                 db.commit()
+                logger.info("[job %s] Scan %s finished successfully in %.1fs with %d artifacts",
+                            str(job_id)[:8], scan_id, time.monotonic() - started, len(artifacts))
         if cancelled:
             for artifact in artifacts:
                 try:

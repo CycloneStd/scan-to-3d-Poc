@@ -17,15 +17,15 @@ REQUIRED = {
 }
 
 DEFAULTS = {
-    "undistort": {"max_image_size": 2000},
-    "dense": {"geom_consistency": True, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
-    "mesh": {"texture": True,"target_face_ratio":0.05},
+    "undistort": {"max_image_size": 1500},
+    "dense": {"geom_consistency": True, "window_step": 2, "max_image_size": 1500, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
+    "mesh": {"texture": True, "target_face_ratio": 0.05, "poisson_depth": 13, "poisson_trim": 1},
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},
     "video": {"select": "sharpest", "oversample": 3},
     "features": {"matcher": "auto", "sequential_overlap": 15, "max_image_size": 2000, "num_threads": 1},
-    "remote": {"chunk_mb": 2, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
-               "upload_workers": 1},
+    "remote": {"chunk_mb": 4, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
+               "upload_workers": 4},
     "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,
               "max_image_size": None,
               "extra_args": [],
