@@ -33,12 +33,12 @@ class ArStage(Stage):
 
         # Check if remote Colab reconstruction already generated the textured AR mesh
         if (remote_ar / "textured" / "mesh.ply").exists() or (out / "textured" / "mesh.ply").exists():
-            if remote_ar.exists() and not (out / "textured" / "mesh.ply").exists():
+            if remote_ar.exists():
                 for p in remote_ar.iterdir():
                     dest = out / p.name
                     if p.is_dir():
                         shutil.copytree(p, dest, dirs_exist_ok=True)
-                    else:
+                    elif not dest.exists():
                         shutil.copy2(p, dest)
             textured = out / "textured"
         else:

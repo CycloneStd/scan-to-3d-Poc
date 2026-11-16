@@ -31,6 +31,37 @@ class ReconstructionStage(Stage):
     def run(self, ctx: Context) -> dict:
         cfg = ctx.cfg
         out = ctx.run.stage_dir(self.dir_name)
+
+        # If reconstruction artifacts already exist locally (e.g. from retried job), reuse without Colab
+        if (out / "fused.ply").exists() and ((out / "mesh" / "textured" / "mesh.ply").exists() or (ctx.run.stage_dir("07_mesh") / "textured" / "mesh.ply").exists()):
+            log.info("Reconstruction artifacts already exist in %s; reusing without launching Colab", out)
+            mesh_stage_dir = ctx.run.stage_dir("07_mesh")
+            remote_mesh = out / "mesh"
+            if remote_mesh.exists():
+                for p in remote_mesh.iterdir():
+                    dest = mesh_stage_dir / p.name
+                    if p.is_dir():
+                        shutil.copytree(p, dest, dirs_exist_ok=True)
+                    elif not dest.exists():
+                        shutil.copy2(p, dest)
+
+            ar_stage_dir = ctx.run.stage_dir("11_ar")
+            remote_ar = out / "ar"
+            if remote_ar.exists():
+                for p in remote_ar.iterdir():
+                    dest = ar_stage_dir / p.name
+                    if p.is_dir():
+                        shutil.copytree(p, dest, dirs_exist_ok=True)
+                    elif not dest.exists():
+                        shutil.copy2(p, dest)
+
+            for stage in ("features", "sparse", "undistort", "dense"):
+                ctx.manifest.update(stage, status="done", finished="remote-complete")
+            recon_entry = ctx.manifest.get("reconstruction") or {}
+            metrics = recon_entry.get("metrics") or {}
+            if metrics:
+                return metrics
+
         accepted = json.loads((ctx.run.stage_dir("02_validate") / "accepted.json").read_text())
         ingest_dir = ctx.run.stage_dir("01_ingest")
         input_dir = out / "upload" / "input"

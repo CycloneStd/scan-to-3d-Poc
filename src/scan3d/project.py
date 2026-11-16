@@ -40,8 +40,8 @@ class Manifest:
         if self.path.exists():
             self.data = json.loads(self.path.read_text())
 
-    def get(self,name:str) -> dict | None:
-        return self.data["stages"].get(name)
+    def get(self, name: str, default: Any = None) -> Any:
+        return self.data["stages"].get(name, default)
 
     def update(self, name: str, **values: Any) -> dict:
         record = self.data["stages"].setdefault(name, {})
