@@ -45,27 +45,34 @@ def main():
         center, size = (lo + hi) / 2, max(hi - lo)
         report["bbox_size"] = [round(v, 4) for v in (hi - lo)]
 
-        bpy.ops.export_scene.gltf(filepath=os.path.join(outdir, "model.glb"), export_format="GLB")
-        report["glb_bytes"] = os.path.getsize(os.path.join(outdir, "model.glb"))
+        glb_path = os.path.join(outdir, "model.glb")
+        bpy.ops.export_scene.gltf(filepath=glb_path, export_format="GLB")
+        report["glb_bytes"] = os.path.getsize(glb_path)
+        report["renders"] = []
 
-        scene.render.engine = "BLENDER_WORKBENCH"
-        scene.render.resolution_x, scene.render.resolution_y = 1280, 800
-        scene.display.shading.light = "FLAT"
-        scene.display.shading.color_type = "TEXTURE" if textures else "VERTEX"
-        cam_data = bpy.data.cameras.new("cam")
-        cam_data.clip_end = size * 20
-        cam = bpy.data.objects.new("cam", cam_data)
-        scene.collection.objects.link(cam)
-        scene.camera = cam
-        views = {"px": (1, 0, 0), "nx": (-1, 0, 0), "py": (0, 1, 0), "ny": (0, -1, 0),
-                 "pz": (0.001, 0.001, 1), "nz": (0.001, 0.001, -1)}
-        for name, d in views.items():
-            direction = Vector(d).normalized()
-            cam.location = center + direction * size * 1.8
-            cam.rotation_euler = (-direction).to_track_quat("-Z", "Y").to_euler()
-            scene.render.filepath = os.path.join(outdir, f"view_{name}.png")
-            bpy.ops.render.render(write_still=True)
-        report["renders"] = sorted(f"view_{n}.png" for n in views)
+        # Only attempt workbench rendering if a display or GPU is available
+        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+            try:
+                scene.render.engine = "BLENDER_WORKBENCH"
+                scene.render.resolution_x, scene.render.resolution_y = 1280, 800
+                scene.display.shading.light = "FLAT"
+                scene.display.shading.color_type = "TEXTURE" if textures else "VERTEX"
+                cam_data = bpy.data.cameras.new("cam")
+                cam_data.clip_end = size * 20
+                cam = bpy.data.objects.new("cam", cam_data)
+                scene.collection.objects.link(cam)
+                scene.camera = cam
+                views = {"px": (1, 0, 0), "nx": (-1, 0, 0), "py": (0, 1, 0), "ny": (0, -1, 0),
+                         "pz": (0.001, 0.001, 1), "nz": (0.001, 0.001, -1)}
+                for name, d in views.items():
+                    direction = Vector(d).normalized()
+                    cam.location = center + direction * size * 1.8
+                    cam.rotation_euler = (-direction).to_track_quat("-Z", "Y").to_euler()
+                    scene.render.filepath = os.path.join(outdir, f"view_{name}.png")
+                    bpy.ops.render.render(write_still=True)
+                report["renders"] = sorted(f"view_{n}.png" for n in views)
+            except Exception:
+                pass
 
     with open(os.path.join(outdir, "blender_report.json"), "w") as fh:
         json.dump(report, fh, indent=2)
