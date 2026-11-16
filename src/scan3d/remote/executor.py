@@ -155,6 +155,10 @@ class ColabExecutor:
         raise SessionLost("The runtime was allocated but never became reachable")
 
     def new(self, retries: int = 2, wait_s: int = 45) -> None:
+        # Automatically stop any leftover/orphaned session with this name first to free GPU quota
+        self._try_colab("stop", "-s", self.session, timeout=60)
+        self.have_session = False
+
         combos = [(g, hm) for g in [self.gpu] + self.fallback_gpus
                   for hm in ([True, False] if self.high_mem else [False])]
         for attempt in range(retries + 1):
@@ -175,6 +179,8 @@ class ColabExecutor:
                         "Authorize Colab on a trusted computer, export its OAuth token to "
                         "~/.config/colab-cli/token.json, and mount that file into the worker."
                     )
+                # If allocation failed, stop any partially initialized session before retrying
+                self._try_colab("stop", "-s", self.session, timeout=60)
                 log.warning("Allocation failed for gpu=%s high_mem=%s", gpu, hm)
             if attempt < retries:
                 log.info("Waiting %ds before retrying allocation...", wait_s)

@@ -24,7 +24,7 @@ DEFAULTS = {
     "export": {"flip_v": False},
     "video": {"select": "sharpest", "oversample": 3},
     "features": {"matcher": "auto", "sequential_overlap": 15, "max_image_size": 2000, "num_threads": 1},
-    "remote": {"chunk_mb": 4, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
+    "remote": {"high_mem": False, "chunk_mb": 4, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
                "upload_workers": 4},
     "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,
               "max_image_size": None,

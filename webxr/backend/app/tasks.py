@@ -76,12 +76,12 @@ def _cancel_remote_job(job_id: uuid.UUID, config_path: Path) -> None:
             return
         from scan3d.remote.executor import ColabExecutor
 
-        executor = ColabExecutor(remote["session"], remote.get("gpu"), remote.get("high_mem", True),
+        executor = ColabExecutor(remote["session"], remote.get("gpu"), remote.get("high_mem", False),
                                  remote.get("auth"), fallback_gpus=remote.get("gpu_fallbacks", []))
-        if executor.cancel_job(str(job_id)):
-            logger.info("Stopped Colab runtime for deleted scan job %s", job_id)
+        executor.release()
+        logger.info("Terminated Colab runtime for scan job %s", job_id)
     except Exception:
-        logger.exception("Could not stop Colab runtime for deleted scan job %s", job_id)
+        logger.exception("Could not stop Colab runtime for scan job %s", job_id)
 
 
 def _reuse_previous_reconstruction(current_job_id: uuid.UUID, scan_id: uuid.UUID, run_dir: Path) -> bool:
@@ -324,6 +324,7 @@ def run_scan_job(self, job_id_text: str):
         if process.returncode != 0:
             tail = log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
             logger.error("scan3d failed for job %s: %s", job_id, tail)
+            _cancel_remote_job(job_id, config_path)
             raise RuntimeError("The reconstruction pipeline failed. Review the job details and retry.")
 
         if _job_cancelled_or_deleted(job_id):
