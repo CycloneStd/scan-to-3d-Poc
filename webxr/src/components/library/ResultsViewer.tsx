@@ -39,6 +39,8 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
   const [autoRotate, setAutoRotate] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadingText, setLoadingText] = useState('Loading 3D model…')
 
   function zoomBy(factor: number) {
     const controls = controlsRef.current
@@ -169,6 +171,25 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     renderer.outputColorSpace = THREE.SRGBColorSpace
     host.replaceChildren(renderer.domElement)
 
+    // Comprehensive studio lighting for photogrammetry scans
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444455, 1.6)
+    scene.add(hemiLight)
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.4)
+    scene.add(ambientLight)
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.0)
+    keyLight.position.set(10, 20, 15)
+    scene.add(keyLight)
+
+    const fillLight = new THREE.DirectionalLight(0xffffff, 1.4)
+    fillLight.position.set(-10, 10, -15)
+    scene.add(fillLight)
+
+    const bottomLight = new THREE.DirectionalLight(0xffffff, 0.8)
+    bottomLight.position.set(0, -15, 0)
+    scene.add(bottomLight)
+
     const grid = new THREE.GridHelper(24, 48, 0x87929c, 0x454d55)
     grid.material.transparent = true
     grid.material.opacity = 0.52
@@ -181,20 +202,24 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     axes.renderOrder = 2
     scene.add(axes)
 
+    camera.near = 0.01
+    camera.far = 1000
+    camera.updateProjectionMatrix()
+
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
     controls.enablePan = true
     controls.enableRotate = true
     controls.enableZoom = true
-    controls.minDistance = 1
-    controls.maxDistance = 40
+    controls.minDistance = 0.05
+    controls.maxDistance = 500
     controls.minPolarAngle = 0
     controls.maxPolarAngle = Math.PI
     controls.screenSpacePanning = true
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.PAN,
     }
     controls.target.set(0, 0, 0)
@@ -255,59 +280,86 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     if (!artifact) return
     let cancelled = false
     setLoadError(false)
+    const sizeMb = artifact.size_bytes ? (artifact.size_bytes / (1024 * 1024)).toFixed(1) : null
+    setLoadingText(sizeMb ? `Loading 3D model (${sizeMb} MB)…` : 'Loading 3D model…')
+    setLoading(true)
 
     async function loadArtifact() {
-      let loaded: THREE.Object3D
-      const blob = await scansApi.artifact(artifact.id)
-      const extension = artifact.filename.split('.').pop()?.toLowerCase()
-      if (extension === 'glb' || extension === 'gltf') {
-        const data = await blob.arrayBuffer()
-        const parsed = await new GLTFLoader().parseAsync(data, '')
-        loaded = parsed.scene
-      } else if (extension === 'obj') {
-        loaded = new OBJLoader().parse(await blob.text())
-      } else if (extension === 'ply') {
-        const geometry = new PLYLoader().parse(await blob.arrayBuffer())
-        geometry.computeBoundingSphere()
-        if (geometry.hasAttribute('color')) {
-          loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 0.01, vertexColors: true, sizeAttenuation: true }))
+      try {
+        let loaded: THREE.Object3D
+        const blob = await scansApi.artifact(artifact.id)
+        const extension = artifact.filename.split('.').pop()?.toLowerCase()
+        if (extension === 'glb' || extension === 'gltf') {
+          const data = await blob.arrayBuffer()
+          const parsed = await new GLTFLoader().parseAsync(data, '')
+          loaded = parsed.scene
+        } else if (extension === 'obj') {
+          loaded = new OBJLoader().parse(await blob.text())
+        } else if (extension === 'ply') {
+          const geometry = new PLYLoader().parse(await blob.arrayBuffer())
+          geometry.computeBoundingSphere()
+          if (geometry.hasAttribute('color')) {
+            loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 0.01, vertexColors: true, sizeAttenuation: true }))
+          } else {
+            loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfe6eb, size: 0.01, sizeAttenuation: true }))
+          }
+        } else if (extension === 'usdz') {
+          loaded = new USDZLoader().parse(await blob.arrayBuffer())
+        } else if (extension === 'spz') {
+          const { SplatMesh } = await import('@sparkjsdev/spark')
+          const url = URL.createObjectURL(blob)
+          const splat = new SplatMesh({ url })
+          try {
+            await splat.initialized
+          } finally {
+            URL.revokeObjectURL(url)
+          }
+          loaded = splat
         } else {
-          loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfe6eb, size: 0.01, sizeAttenuation: true }))
+          throw new Error(`Unsupported result format: ${extension ?? 'unknown'}`)
         }
-      } else if (extension === 'usdz') {
-        loaded = new USDZLoader().parse(await blob.arrayBuffer())
-      } else if (extension === 'spz') {
-        const { SplatMesh } = await import('@sparkjsdev/spark')
-        const url = URL.createObjectURL(blob)
-        const splat = new SplatMesh({ url })
-        try {
-          await splat.initialized
-        } finally {
-          URL.revokeObjectURL(url)
+        if (cancelled) {
+          disposeModel(loaded)
+          return
         }
-        loaded = splat
-      } else {
-        throw new Error(`Unsupported result format: ${extension ?? 'unknown'}`)
-      }
-      if (cancelled) {
-        disposeModel(loaded)
-        return
-      }
-      modelRoot.add(loaded)
-      const bounds = new THREE.Box3().setFromObject(loaded)
-      if (!bounds.isEmpty()) {
-        const center = bounds.getCenter(new THREE.Vector3())
-        const size = bounds.getSize(new THREE.Vector3())
-        loaded.position.sub(center)
-        const distance = Math.max(size.x, size.y, size.z, 1) * 1.8
-        const controls = controlsRef.current
-        if (controls) {
-          controls.target.set(0, 0, 0)
-          controls.object.position.set(distance, distance * 0.75, distance)
-          controls.update()
+
+        // Ensure all mesh faces are double-sided so inverted normals or backfaces are fully visible
+        loaded.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh
+            const mat = mesh.material
+            const materials = Array.isArray(mat) ? mat : [mat]
+            materials.forEach((m) => {
+              if (m) {
+                m.side = THREE.DoubleSide
+                m.shadowSide = THREE.DoubleSide
+                m.needsUpdate = true
+              }
+            })
+          }
+        })
+
+        modelRoot.add(loaded)
+        const bounds = new THREE.Box3().setFromObject(loaded)
+        if (!bounds.isEmpty()) {
+          const center = bounds.getCenter(new THREE.Vector3())
+          const size = bounds.getSize(new THREE.Vector3())
+          loaded.position.sub(center)
+          const maxDim = Math.max(size.x, size.y, size.z, 1)
+          const distance = maxDim * 1.6
+          const controls = controlsRef.current
+          if (controls) {
+            controls.target.set(0, 0, 0)
+            controls.object.position.set(distance * 0.8, distance * 0.6, distance)
+            controls.minDistance = Math.max(maxDim * 0.05, 0.01)
+            controls.maxDistance = Math.max(maxDim * 10, 100)
+            controls.update()
+          }
         }
+        applyRenderMode(renderMode)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      applyRenderMode(renderMode)
     }
 
     void loadArtifact().catch((error: unknown) => {
@@ -363,6 +415,12 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4M13 3h4v4M17 13v4h-4M3 13v4h4" /></svg>
         </button>
       </div>
+      {loading && (
+        <div className="results-viewer-loading" role="status" aria-live="polite">
+          <img src={cycloneMark} alt="" />
+          <span>{loadingText}</span>
+        </div>
+      )}
       {(webglUnavailable || loadError) && (
         <div className="results-webgl-fallback" role="status">
           <img src={cycloneMark} alt="" />

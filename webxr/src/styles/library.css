@@ -196,6 +196,28 @@ body.library-page { min-width: 320px; min-height: 100svh; margin: 0; }
 .results-viewer-tools svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
 .results-webgl-fallback { position: absolute; inset: 0; display: grid; place-items: center; }
 .results-webgl-fallback img { display: block; width: 56px; height: auto; opacity: .17; animation: library-mark-breathe 4.8s ease-in-out infinite; }
+.results-viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgb(37 39 42 / 85%);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  color: #c4c6c8;
+  font-size: 13px;
+  font-weight: 550;
+  pointer-events: none;
+}
+.results-viewer-loading img {
+  width: 52px;
+  height: auto;
+  opacity: .7;
+  animation: library-mark-breathe 2.4s ease-in-out infinite;
+}
 .model-modal-loading { position: absolute; inset: 0; display: grid; place-items: center; }
 .model-modal-loading img { display: block; width: 68px; height: auto; opacity: .17; animation: library-mark-breathe 4.8s ease-in-out infinite; }
 @media (max-width: 800px) {

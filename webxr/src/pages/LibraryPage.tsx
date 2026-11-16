@@ -160,6 +160,43 @@ function SourceAssetImage({ asset, name, index }: { asset: ScanAsset; name: stri
   )
 }
 
+function CardPreviewImage({ asset, name }: { asset: ScanAsset; name: string }) {
+  const [src, setSrc] = useState<string>()
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let objectUrl: string | undefined
+    void getSourceImageBlob(asset.id).then((blob) => {
+      objectUrl = URL.createObjectURL(blob)
+      if (active) setSrc(objectUrl)
+      else URL.revokeObjectURL(objectUrl)
+    }).catch(() => {})
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [asset.id])
+
+  if (!src) return <PreviewPlaceholder />
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        display: 'block',
+        opacity: loaded ? 1 : 0,
+        transition: 'opacity 0.25s ease',
+      }}
+      onLoad={() => setLoaded(true)}
+    />
+  )
+}
+
 export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<LibraryCategory>('All')
   const [sortBy, setSortBy] = useState('recent')
@@ -524,6 +561,7 @@ export default function LibraryPage() {
               <button
                 className="library-card-delete"
                 type="button"
+                style={{ display: 'none' }}
                 aria-label={`${deletingScanId === scan.id ? 'Deleting' : 'Delete'} ${scan.name}`}
                 disabled={deletingScanId === scan.id}
                 onClick={() => { void deleteScan(scan) }}
@@ -537,7 +575,14 @@ export default function LibraryPage() {
               </button>
               <div className="library-card-preview">
                 <div className="library-card-media">
-                  <PreviewPlaceholder />
+                  {scan.assets?.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/')) ? (
+                    <CardPreviewImage
+                      asset={scan.assets.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/'))!}
+                      name={scan.name}
+                    />
+                  ) : (
+                    <PreviewPlaceholder />
+                  )}
                 </div>
               </div>
               <div className="library-card-details">
