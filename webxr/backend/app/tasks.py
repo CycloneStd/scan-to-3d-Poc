@@ -210,8 +210,8 @@ def run_scan_job(self, job_id_text: str):
         if not scan:
             _set_job(job_id, status="failed", error_code="SCAN_NOT_FOUND", error_message="The scan no longer exists", finished_at=utcnow())
             return {"status": "failed"}
-        if job.status == "cancelled" or scan.status == "deleting":
-            return {"status": "cancelled"}
+        if job.status in ("cancelled", "failed", "succeeded") or scan.status in ("deleting", "failed"):
+            return {"status": job.status}
         assets = list(db.scalars(select(ScanAsset).where(ScanAsset.scan_id == scan.id, ScanAsset.role == "input", ScanAsset.status == "uploaded")))
         owner_id, scan_id = scan.owner_id, scan.id
         if not assets:

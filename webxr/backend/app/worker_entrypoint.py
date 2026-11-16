@@ -28,6 +28,7 @@ def _install_colab_token() -> None:
 
 
 def main() -> None:
+    os.environ.setdefault("PYTHONKEYRING_BACKEND", "keyring.backends.null.Keyring")
     _install_colab_token()
     os.execvp("celery", ["celery", "-A", "app.worker:celery_app", "worker",
                          "--loglevel=INFO", "--concurrency=1"])

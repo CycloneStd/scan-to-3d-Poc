@@ -118,6 +118,24 @@ def split_result(path, prefix, chunk):
     return n
 
 
+def count_ply_elements(path):
+    counts = {}
+    if not os.path.isfile(path):
+        return counts
+    try:
+        with open(path, "rb") as fh:
+            for line in fh:
+                if line.startswith(b"element "):
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        counts[parts[1].decode("ascii", errors="ignore")] = int(parts[2])
+                elif line.strip() == b"end_header":
+                    break
+    except Exception:
+        pass
+    return counts
+
+
 def dense(job):
     assemble(job)
     work = "/content/work"
@@ -351,9 +369,15 @@ def reconstruct_mesh(job):
 
         print("@@RECON_STAGE@@dense", flush=True)
         started = time.time()
-        rc, tail = stream(colmap + ["patch_match_stereo", "--workspace_path", undistorted,
-                                     "--workspace_format", "COLMAP", "--PatchMatchStereo.geom_consistency",
-                                     "true" if job["geom_consistency"] else "false"])
+        pm_cmd = colmap + ["patch_match_stereo", "--workspace_path", undistorted,
+                           "--workspace_format", "COLMAP", "--PatchMatchStereo.geom_consistency",
+                           "true" if job["geom_consistency"] else "false"]
+        if job.get("dense_window_step") and int(job["dense_window_step"]) > 1:
+            pm_cmd += ["--PatchMatchStereo.window_step", str(job["dense_window_step"])]
+        if job.get("dense_max_image_size") and int(job["dense_max_image_size"]) > 0:
+            pm_cmd += ["--PatchMatchStereo.max_image_size", str(job["dense_max_image_size"])]
+
+        rc, tail = stream(pm_cmd)
         seconds_patch_match = round(time.time() - started, 1)
         if rc != 0:
             attempt["failed"] = "patch match stereo: " + tail[-1000:]
@@ -369,33 +393,112 @@ def reconstruct_mesh(job):
             attempt["failed"] = "stereo fusion: " + tail[-1000:]
             continue
 
+        fused_counts = count_ply_elements(fused)
+        fused_points = fused_counts.get("vertex", 0)
+
+        # Meshing and Texturing stage on Colab (utilizing Colab high RAM & GPU)
+        print("@@RECON_STAGE@@mesh", flush=True)
+        mesh_out = f"{work}/mesh"
+        shutil.rmtree(mesh_out, ignore_errors=True)
+        os.makedirs(mesh_out, exist_ok=True)
+
+        mesh_cfg = job.get("mesh", {})
+        poisson_depth = str(mesh_cfg.get("poisson_depth", 13))
+        poisson_trim = str(mesh_cfg.get("poisson_trim", 1))
+
+        full_mesh = f"{mesh_out}/meshed-poisson.ply"
+        poisson_cmd = colmap + ["poisson_mesher", "--input_path", fused, "--output_path", full_mesh,
+                               "--PoissonMeshing.depth", poisson_depth,
+                               "--PoissonMeshing.trim", poisson_trim]
+        started = time.time()
+        rc, tail = stream(poisson_cmd)
+        seconds_poisson = round(time.time() - started, 1)
+        if rc != 0 or not os.path.isfile(full_mesh):
+            attempt["failed"] = "poisson mesher: " + tail[-1000:]
+            continue
+
+        c_full = count_ply_elements(full_mesh)
+        full_vertices = c_full.get("vertex", 0)
+        full_faces = c_full.get("face", 0)
+
+        mesh_for_texture = full_mesh
+        ratio = mesh_cfg.get("target_face_ratio")
+        seconds_simplify = 0.0
+        mesh_vertices = full_vertices
+        mesh_faces = full_faces
+
+        if ratio:
+            simplified = f"{mesh_out}/meshed-simplified.ply"
+            started = time.time()
+            rc, tail = stream(colmap + ["mesh_simplifier", "--input_path", full_mesh, "--output_path", simplified,
+                                        "--MeshSimplification.target_face_ratio", str(ratio)])
+            seconds_simplify = round(time.time() - started, 1)
+            if rc == 0 and os.path.isfile(simplified):
+                c_simp = count_ply_elements(simplified)
+                mesh_vertices = c_simp.get("vertex", 0)
+                mesh_faces = c_simp.get("face", 0)
+                mesh_for_texture = simplified
+            else:
+                print(f"mesh_simplifier failed or target_face_ratio unsupported: {tail[-300:]}; continuing with full mesh", flush=True)
+
+        seconds_texture = 0.0
+        if mesh_cfg.get("texture", True):
+            textured_dir = f"{mesh_out}/textured"
+            started = time.time()
+            rc, tail = stream(colmap + ["mesh_texturer",
+                                        "--workspace_path", undistorted,
+                                        "--input_path", mesh_for_texture,
+                                        "--output_path", textured_dir])
+            seconds_texture = round(time.time() - started, 1)
+            if rc != 0:
+                attempt["failed"] = "mesh texturer: " + tail[-1000:]
+                continue
+
+        # AR Simplification & Texturing on Colab
+        ar_out = f"{work}/ar"
+        shutil.rmtree(ar_out, ignore_errors=True)
+        os.makedirs(ar_out, exist_ok=True)
+        ar_cfg = job.get("ar", {})
+        target_faces = ar_cfg.get("target_faces", 100000)
+        ar_ratio = min(1.0, float(target_faces) / max(1, full_faces))
+        ar_mesh = f"{ar_out}/mesh_ar.ply"
+        started = time.time()
+        rc, tail = stream(colmap + ["mesh_simplifier", "--input_path", full_mesh, "--output_path", ar_mesh,
+                                    "--MeshSimplification.target_face_ratio", str(ar_ratio)])
+        seconds_ar_simplify = round(time.time() - started, 1)
+
+        ar_textured = f"{ar_out}/textured"
+        started = time.time()
+        rc, tail = stream(colmap + ["mesh_texturer",
+                                    "--workspace_path", undistorted,
+                                    "--input_path", ar_mesh if os.path.isfile(ar_mesh) else mesh_for_texture,
+                                    "--output_path", ar_textured])
+        seconds_ar_texture = round(time.time() - started, 1)
+
         result_dir = f"{work}/result"
         shutil.rmtree(result_dir, ignore_errors=True)
         os.makedirs(f"{result_dir}/workspace", exist_ok=True)
         shutil.copy2(fused, f"{result_dir}/fused.ply")
-        for name in ("images", "sparse", "project.ini"):
+        for name in ("sparse", "project.ini"):
             source_path = f"{undistorted}/{name}"
             if os.path.isdir(source_path):
                 shutil.copytree(source_path, f"{result_dir}/workspace/{name}")
             elif os.path.isfile(source_path):
                 shutil.copy2(source_path, f"{result_dir}/workspace/{name}")
         shutil.copytree(best_txt, f"{result_dir}/best_model_txt")
+        shutil.copytree(mesh_out, f"{result_dir}/mesh")
+        shutil.copytree(ar_out, f"{result_dir}/ar")
+
         result_tar = "/content/reconstruction_result.tar.gz"
         if os.path.exists(result_tar):
             os.remove(result_tar)
         with tarfile.open(result_tar, "w:gz") as archive:
-            for name in ("fused.ply", "workspace", "best_model_txt"):
+            for name in ("fused.ply", "workspace", "best_model_txt", "mesh", "ar"):
                 archive.add(f"{result_dir}/{name}", arcname=name)
             if os.path.isfile(LOG):
                 archive.add(LOG, arcname="reconstruction.log")
         result_parts = split_result(result_tar, "reconstruction_result.part", job["chunk_bytes"])
-        fused_points = 0
-        with open(fused, "rb") as fh:
-            for line in fh:
-                if line.startswith(b"element vertex "):
-                    fused_points = int(line.split()[2])
-                if line.strip() == b"end_header":
-                    break
+
         return {
             "gpu": gpu,
             "colmap_spec": spec,
@@ -409,6 +512,15 @@ def reconstruct_mesh(job):
             "seconds_patch_match": seconds_patch_match,
             "seconds_fusion": seconds_fusion,
             "fused_points": fused_points,
+            "seconds_poisson": seconds_poisson,
+            "seconds_simplify": seconds_simplify,
+            "seconds_texture": seconds_texture,
+            "full_vertices": full_vertices,
+            "full_faces": full_faces,
+            "mesh_vertices": mesh_vertices,
+            "mesh_faces": mesh_faces,
+            "seconds_ar_simplify": seconds_ar_simplify,
+            "seconds_ar_texture": seconds_ar_texture,
             "result_parts": result_parts,
             "result_sha256": sha256(result_tar),
         }

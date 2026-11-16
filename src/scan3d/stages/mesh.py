@@ -19,14 +19,46 @@ class MeshStage(Stage):
     def run(self, ctx: Context) -> dict:
         binary = ctx.cfg["colmap"]["binary"]
         out = ctx.run.stage_dir(self.dir_name)
+        reconstruction_dir = ctx.run.stage_dir("06_reconstruction")
+        remote_mesh = reconstruction_dir / "mesh"
+
+        # Check if remote Colab reconstruction already generated the mesh
+        if (remote_mesh / "textured" / "mesh.ply").exists() or (out / "textured" / "mesh.ply").exists():
+            if remote_mesh.exists() and not (out / "textured" / "mesh.ply").exists():
+                for p in remote_mesh.iterdir():
+                    dest = out / p.name
+                    if p.is_dir():
+                        shutil.copytree(p, dest, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(p, dest)
+            full = out / "meshed-poisson.ply"
+            simplified = out / "meshed-simplified.ply"
+            mesh_for_texture = simplified if simplified.exists() else full
+            c_full = ply_counts(full) if full.exists() else {}
+            c_mesh = ply_counts(mesh_for_texture) if mesh_for_texture.exists() else {}
+            recon_metrics = ctx.manifest.get("reconstruction", {}).get("metrics", {})
+            return {
+                "poisson_seconds": recon_metrics.get("seconds_poisson", 0.0),
+                "full_vertices": c_full.get("vertex") or recon_metrics.get("full_vertices"),
+                "full_faces": c_full.get("face") or recon_metrics.get("full_faces"),
+                "simplify_seconds": recon_metrics.get("seconds_simplify", 0.0),
+                "mesh_vertices": c_mesh.get("vertex") or recon_metrics.get("mesh_vertices"),
+                "mesh_faces": c_mesh.get("face") or recon_metrics.get("mesh_faces"),
+                "texture_seconds": recon_metrics.get("seconds_texture", 0.0),
+                "files": sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()),
+                "remote_executed": True,
+            }
+
         for p in out.iterdir():
             shutil.rmtree(p) if p.is_dir() else p.unlink()
         logf = ctx.run.root / "logs" / "mesh.log"
 
         full = out / "meshed-poisson.ply"
-        reconstruction_dir = ctx.run.stage_dir("06_reconstruction")
-        r1 = run([binary, "poisson_mesher", "--input_path", reconstruction_dir / "fused.ply",
-                  "--output_path", full], log_file=logf)
+        poisson_depth = str(ctx.cfg["mesh"].get("poisson_depth", 11))
+        poisson_cmd = [binary, "poisson_mesher", "--input_path", reconstruction_dir / "fused.ply",
+                       "--output_path", full, "--PoissonMeshing.depth", poisson_depth,
+                       "--PoissonMeshing.trim", "1"]
+        r1 = run(poisson_cmd, log_file=logf)
         c = ply_counts(full)
         metrics = {"poisson_seconds": r1.seconds, "full_vertices": c.get("vertex"), "full_faces": c.get("face")}
 

@@ -32,3 +32,9 @@ features:
 
 sparse: 
   mapper: incremental
+
+mesh:
+  texture: true
+  target_face_ratio: 0.05
+  poisson_depth: 13
+  poisson_trim: 1

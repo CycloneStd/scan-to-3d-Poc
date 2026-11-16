@@ -8,11 +8,14 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    broker_transport_options={
+        "visibility_timeout": 86400,  # 24 hours: prevents Redis from re-queuing long scan tasks
+    },
     worker_prefetch_multiplier=1,
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    result_expires=3600,
+    result_expires=86400,
     broker_connection_retry_on_startup=True,
     beat_schedule={
         "purge-expired-auth-tokens-daily": {

@@ -84,7 +84,19 @@ class ReconstructionStage(Stage):
                 "mapper": cfg["sparse"]["mapper"],
                 "undistort_max_image_size": int(cfg["undistort"]["max_image_size"]),
                 "geom_consistency": bool(cfg["dense"]["geom_consistency"]),
+                "dense_window_step": int(cfg.get("dense", {}).get("window_step", 1)),
+                "dense_max_image_size": int(cfg.get("dense", {}).get("max_image_size", 0)),
                 "colmap_specs": cfg["dense"]["colmap_specs"],
+                "mesh": {
+                    "texture": bool(cfg.get("mesh", {}).get("texture", True)),
+                    "target_face_ratio": cfg.get("mesh", {}).get("target_face_ratio", 0.05),
+                    "poisson_depth": int(cfg.get("mesh", {}).get("poisson_depth", 13)),
+                    "poisson_trim": int(cfg.get("mesh", {}).get("poisson_trim", 1)),
+                },
+                "ar": {
+                    "target_faces": int(cfg.get("ar", {}).get("target_faces", 100000)),
+                    "texture_px": int(cfg.get("ar", {}).get("texture_px", 2048)),
+                },
             }, out / "remote", on_output=self._track_remote_stages(ctx))
             if result.get("ok"):
                 executor.download_chunked("reconstruction_result.part", result["data"]["result_parts"], result_tar)
@@ -98,6 +110,27 @@ class ReconstructionStage(Stage):
         shutil.rmtree(out / "remote", ignore_errors=True)
         input_tar.unlink(missing_ok=True)
         result_tar.unlink(missing_ok=True)
+
+        mesh_stage_dir = ctx.run.stage_dir("07_mesh")
+        remote_mesh = out / "mesh"
+        if remote_mesh.exists():
+            for p in remote_mesh.iterdir():
+                dest = mesh_stage_dir / p.name
+                if p.is_dir():
+                    shutil.copytree(p, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(p, dest)
+
+        ar_stage_dir = ctx.run.stage_dir("11_ar")
+        remote_ar = out / "ar"
+        if remote_ar.exists():
+            for p in remote_ar.iterdir():
+                dest = ar_stage_dir / p.name
+                if p.is_dir():
+                    shutil.copytree(p, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(p, dest)
+
         for stage in ("features", "sparse", "undistort", "dense"):
             ctx.manifest.update(stage, status="done", finished="remote-complete")
         return {
@@ -114,13 +147,22 @@ class ReconstructionStage(Stage):
             "seconds_patch_match": data["seconds_patch_match"],
             "seconds_fusion": data["seconds_fusion"],
             "fused_points": data["fused_points"],
+            "seconds_poisson": data.get("seconds_poisson"),
+            "seconds_simplify": data.get("seconds_simplify"),
+            "seconds_texture": data.get("seconds_texture"),
+            "full_vertices": data.get("full_vertices"),
+            "full_faces": data.get("full_faces"),
+            "mesh_vertices": data.get("mesh_vertices"),
+            "mesh_faces": data.get("mesh_faces"),
+            "seconds_ar_simplify": data.get("seconds_ar_simplify"),
+            "seconds_ar_texture": data.get("seconds_ar_texture"),
             "upload_mb": upload_mb,
             "colab_seconds": result.get("seconds"),
         }
 
     @staticmethod
     def _track_remote_stages(ctx: Context):
-        order = ("features", "sparse", "undistort", "dense")
+        order = ("features", "sparse", "undistort", "dense", "mesh")
         buffer = ""
 
         def update(chunk: str) -> None:

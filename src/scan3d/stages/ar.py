@@ -27,23 +27,37 @@ class ArStage(Stage):
         cfg, ar = ctx.cfg, ctx.cfg["ar"]
         binary = cfg["colmap"]["binary"]
         out = ctx.run.stage_dir(self.dir_name)
-        for path in out.iterdir():
-            shutil.rmtree(path) if path.is_dir() else path.unlink()
         log_file = ctx.run.root / "logs" / "ar.log"
-
-        full = ctx.run.stage_dir("07_mesh") / "meshed-poisson.ply"
-        full_faces = ply_counts(full)["face"]
-        if full_faces <= 0:
-            raise RuntimeError(f"Poisson mesh has no faces: {full}")
-        ratio = min(1.0, ar["target_faces"] / full_faces)
-        small = out / "mesh_ar.ply"
-        run([binary, "mesh_simplifier", "--input_path", full, "--output_path", small,
-             "--MeshSimplification.target_face_ratio", ratio], log_file=log_file)
-
         reconstruction_dir = ctx.run.stage_dir("06_reconstruction")
-        textured = out / "textured"
-        run([binary, "mesh_texturer", "--workspace_path", reconstruction_dir / "workspace",
-             "--input_path", small, "--output_path", textured], log_file=log_file)
+        remote_ar = reconstruction_dir / "ar"
+
+        # Check if remote Colab reconstruction already generated the textured AR mesh
+        if (remote_ar / "textured" / "mesh.ply").exists() or (out / "textured" / "mesh.ply").exists():
+            if remote_ar.exists() and not (out / "textured" / "mesh.ply").exists():
+                for p in remote_ar.iterdir():
+                    dest = out / p.name
+                    if p.is_dir():
+                        shutil.copytree(p, dest, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(p, dest)
+            textured = out / "textured"
+        else:
+            for path in out.iterdir():
+                shutil.rmtree(path) if path.is_dir() else path.unlink()
+            full = ctx.run.stage_dir("07_mesh") / "meshed-poisson.ply"
+            if not full.exists():
+                full = ctx.run.stage_dir("07_mesh") / "meshed-simplified.ply"
+            full_faces = ply_counts(full)["face"] if full.exists() else 0
+            if full_faces <= 0:
+                raise RuntimeError(f"Poisson mesh has no faces: {full}")
+            ratio = min(1.0, ar["target_faces"] / full_faces)
+            small = out / "mesh_ar.ply"
+            run([binary, "mesh_simplifier", "--input_path", full, "--output_path", small,
+                 "--MeshSimplification.target_face_ratio", ratio], log_file=log_file)
+
+            textured = out / "textured"
+            run([binary, "mesh_texturer", "--workspace_path", reconstruction_dir / "workspace",
+                 "--input_path", small, "--output_path", textured], log_file=log_file)
 
         obj = out / "mesh_ar.obj"
         convert_textured_ply(textured / "mesh.ply", "texture_ar.jpg", obj,
@@ -59,7 +73,7 @@ class ArStage(Stage):
         if not cv2.imwrite(str(out / "texture_ar.jpg"), image,
                            [cv2.IMWRITE_JPEG_QUALITY, int(ar["jpeg_quality"])]):
             raise RuntimeError(f"Could not write texture image {out / 'texture_ar.jpg'}")
-        shutil.rmtree(textured)
+        shutil.rmtree(textured, ignore_errors=True)
 
         images_txt = reconstruction_dir / "best_model_txt" / "images.txt"
         up, coherence, camera_count = estimate_up(images_txt)
