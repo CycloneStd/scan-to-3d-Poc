@@ -38,6 +38,23 @@ class ExportStage(Stage):
                                               flip_v=ctx.cfg["export"]["flip_v"])
 
         obj = exports / "textured" / "model.obj"
+        if obj.exists():
+            # Orient mesh upright if camera poses are available
+            images_txt = ctx.run.stage_dir("06_reconstruction") / "best_model_txt" / "images.txt"
+            if not images_txt.exists():
+                for cand_dir in ("04_sparse_incremental", "04_sparse_hierarchical"):
+                    cand = ctx.run.stage_dir(cand_dir) / "best_model_txt" / "images.txt"
+                    if cand.exists():
+                        images_txt = cand
+                        break
+            if images_txt.exists():
+                try:
+                    from ..ar import estimate_up, orient_obj
+                    up, _, _ = estimate_up(images_txt)
+                    orient_obj(obj, up, scale=None)
+                except Exception:
+                    pass
+
         simplified = exports / "meshed-simplified.ply"
         src = obj if obj.exists() else simplified if simplified.exists() else mesh_dir / "meshed-poisson.ply"
 

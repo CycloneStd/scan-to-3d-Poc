@@ -59,6 +59,11 @@ function fileExtension(filename: string) {
 }
 
 function resultArtifact(scan: ScanRecord): ScanArtifact | null {
+  // First prefer oriented AR glb, then standard model glb
+  const arGlb = scan.artifacts.find((a) => a.filename.toLowerCase() === 'model_ar.glb')
+  if (arGlb) return arGlb
+  const modelGlb = scan.artifacts.find((a) => a.filename.toLowerCase() === 'model.glb')
+  if (modelGlb) return modelGlb
   const artifacts = scan.artifacts.filter((artifact) => ['glb', 'gltf', 'obj', 'ply', 'spz'].includes(fileExtension(artifact.filename)))
   const priority = ['glb', 'obj', 'ply', 'spz', 'gltf']
   return artifacts.sort((a, b) => priority.indexOf(fileExtension(a.filename)) - priority.indexOf(fileExtension(b.filename)))[0] ?? null
@@ -160,30 +165,63 @@ function SourceAssetImage({ asset, name, index }: { asset: ScanAsset; name: stri
   )
 }
 
-function CardPreviewImage({ asset, name }: { asset: ScanAsset; name: string }) {
+function CardPreviewMedia({ scan }: { scan: ScanCard }) {
   const [src, setSrc] = useState<string>()
   const [loaded, setLoaded] = useState(false)
+
+  // 1. Check for a 2D render / thumbnail artifact of the generated 3D model
+  const renderArtifact = scan.artifacts?.find((a) =>
+    a.kind === 'thumbnail' ||
+    (/\.(png|jpg|jpeg|webp)$/i.test(a.filename) && !a.filename.toLowerCase().includes('texture'))
+  ) || scan.artifacts?.find((a) => /\.(png|jpg|jpeg|webp)$/i.test(a.filename) && !a.filename.toLowerCase().includes('texture'))
+
+  // 2. Fall back to the first scanned photo of the house
+  const firstPhoto = scan.assets?.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/'))
 
   useEffect(() => {
     let active = true
     let objectUrl: string | undefined
-    void getSourceImageBlob(asset.id).then((blob) => {
-      objectUrl = URL.createObjectURL(blob)
-      if (active) setSrc(objectUrl)
-      else URL.revokeObjectURL(objectUrl)
-    }).catch(() => {})
+    setSrc(undefined)
+    setLoaded(false)
+
+    async function loadMedia() {
+      try {
+        let blob: Blob
+        if (renderArtifact) {
+          blob = await scansApi.artifact(renderArtifact.id)
+        } else if (firstPhoto) {
+          blob = await getSourceImageBlob(firstPhoto.id)
+        } else {
+          return
+        }
+        objectUrl = URL.createObjectURL(blob)
+        if (active) setSrc(objectUrl)
+        else URL.revokeObjectURL(objectUrl)
+      } catch {
+        if (active && renderArtifact && firstPhoto) {
+          try {
+            const blob = await getSourceImageBlob(firstPhoto.id)
+            objectUrl = URL.createObjectURL(blob)
+            if (active) setSrc(objectUrl)
+            else URL.revokeObjectURL(objectUrl)
+          } catch {}
+        }
+      }
+    }
+
+    void loadMedia()
     return () => {
       active = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [asset.id])
+  }, [renderArtifact?.id, firstPhoto?.id])
 
   if (!src) return <PreviewPlaceholder />
 
   return (
     <img
       src={src}
-      alt={name}
+      alt={scan.name}
       style={{
         width: '100%',
         height: '100%',
@@ -575,14 +613,7 @@ export default function LibraryPage() {
               </button>
               <div className="library-card-preview">
                 <div className="library-card-media">
-                  {scan.assets?.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/')) ? (
-                    <CardPreviewImage
-                      asset={scan.assets.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/'))!}
-                      name={scan.name}
-                    />
-                  ) : (
-                    <PreviewPlaceholder />
-                  )}
+                  <CardPreviewMedia scan={scan} />
                 </div>
               </div>
               <div className="library-card-details">

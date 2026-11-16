@@ -40,7 +40,20 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [loadingText, setLoadingText] = useState('Loading 3D model…')
+
+  function flipUpright() {
+    const modelRoot = modelRootRef.current
+    if (!modelRoot) return
+    modelRoot.rotation.x = (modelRoot.rotation.x + Math.PI) % (Math.PI * 2)
+    controlsRef.current?.update()
+  }
+
+  function rotateQuarterTurn() {
+    const modelRoot = modelRootRef.current
+    if (!modelRoot) return
+    modelRoot.rotation.y = (modelRoot.rotation.y + Math.PI / 2) % (Math.PI * 2)
+    controlsRef.current?.update()
+  }
 
   function zoomBy(factor: number) {
     const controls = controlsRef.current
@@ -280,8 +293,6 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     if (!artifact) return
     let cancelled = false
     setLoadError(false)
-    const sizeMb = artifact.size_bytes ? (artifact.size_bytes / (1024 * 1024)).toFixed(1) : null
-    setLoadingText(sizeMb ? `Loading 3D model (${sizeMb} MB)…` : 'Loading 3D model…')
     setLoading(true)
 
     async function loadArtifact() {
@@ -399,6 +410,12 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
         <button type="button" aria-label="Reset view" title="Reset view" onClick={resetView} disabled={webglUnavailable}>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 9 7-6 7 6M5.5 8v8.5h9V8M8 16.5v-5h4v5" /></svg>
         </button>
+        <button type="button" aria-label="Flip upright" title="Flip upright (invert vertical)" onClick={flipUpright} disabled={webglUnavailable}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5v15M14 6.5l-4-4-4 4M6 13.5l4 4 4-4" /></svg>
+        </button>
+        <button type="button" aria-label="Rotate 90 degrees" title="Rotate 90°" onClick={rotateQuarterTurn} disabled={webglUnavailable}>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10A6 6 0 1 1 14.2 5.8L16 4M16 4v4.5M16 4h-4.5" /></svg>
+        </button>
         <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomBy(0.8)} disabled={webglUnavailable}>
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M12.5 12.5 17 17M8.5 6v5M6 8.5h5" /></svg>
         </button>
@@ -416,9 +433,8 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
         </button>
       </div>
       {loading && (
-        <div className="results-viewer-loading" role="status" aria-live="polite">
+        <div className="results-viewer-loading" role="status" aria-label="Loading 3D model">
           <img src={cycloneMark} alt="" />
-          <span>{loadingText}</span>
         </div>
       )}
       {(webglUnavailable || loadError) && (

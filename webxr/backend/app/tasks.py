@@ -24,7 +24,7 @@ TRACK_STAGES = {
     "mesh": ["ingest", "validate", "features", "sparse", "undistort", "dense", "mesh", "export", "ar"],
     "splat": ["ingest", "validate", "features", "sparse", "undistort", "splat"],
 }
-ARTIFACT_SUFFIXES = {".glb", ".gltf", ".obj", ".ply", ".usdz", ".spz"}
+ARTIFACT_SUFFIXES = {".glb", ".gltf", ".obj", ".ply", ".usdz", ".spz", ".png", ".jpg", ".webp"}
 
 
 def _set_job(job_id: uuid.UUID, **updates) -> None:
@@ -173,7 +173,18 @@ def _upload_artifacts(job: ScanJob, scan: Scan, run_dir: Path) -> list[ScanArtif
         raise RuntimeError("The pipeline completed but did not produce a downloadable model artifact")
     artifacts: list[ScanArtifact] = []
     for path in files:
-        kind = "model" if path.suffix.lower() in {".glb", ".gltf", ".obj", ".usdz"} else "point_cloud"
+        suffix = path.suffix.lower()
+        if suffix in {".png", ".jpg", ".webp"}:
+            if "view_" in path.name or "thumbnail" in path.name or "preview" in path.name:
+                kind = "thumbnail"
+            elif "texture" in path.name:
+                kind = "texture"
+            else:
+                kind = "thumbnail"
+        elif suffix in {".glb", ".gltf", ".obj", ".usdz"}:
+            kind = "model"
+        else:
+            kind = "point_cloud"
         key = f"users/{scan.owner_id}/scans/{scan.id}/artifacts/{job.id}/{path.name}"
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         storage.upload_file(key, path, content_type)
