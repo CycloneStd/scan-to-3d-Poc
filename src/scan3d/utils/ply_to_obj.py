@@ -12,7 +12,10 @@ def read_textured_ply(path: Path):
     with open(path, "rb") as fh:
         header = []
         while True:
-            line = fh.readline().decode("ascii").strip()
+            raw = fh.readline()
+            if not raw:
+                raise ValueError("Truncated PLY header")
+            line = raw.decode("ascii").strip()
             header.append(line)
             if line == "end_header":
                 break
@@ -44,8 +47,22 @@ def read_textured_ply(path: Path):
     return verts, faces["idx"], faces["uv"].reshape(nf, 3, 2)
 
 
-def convert_textured_ply(ply: Path, texture_name: str, obj_path: Path, flip_v: bool) -> dict:
+def convert_textured_ply(ply: Path, texture_name: str, obj_path: Path, flip_v: bool,
+                         max_edge_factor: float | None = None) -> dict:
     verts, idx, uv = read_textured_ply(ply)
+    original_faces = len(idx)
+    if max_edge_factor and original_faces:
+        # Unsupported Poisson sheets often contain edges far longer than sampled surface edges.
+        corners = verts[idx]
+        lengths = np.linalg.norm(corners - np.roll(corners, 1, axis=1), axis=2)
+        median = np.median(lengths)
+        if median > 0:
+            keep = lengths.max(axis=1) <= max_edge_factor * median
+            if not keep.any():
+                raise ValueError("Edge trimming removed every triangle")
+            idx, uv = idx[keep], uv[keep]
+            used, remapped = np.unique(idx.ravel(), return_inverse=True)
+            verts, idx = verts[used], remapped.reshape(-1, 3)
     nf = len(idx)
     uv = uv.reshape(-1, 2).astype(np.float64)
     if flip_v:
@@ -61,4 +78,4 @@ def convert_textured_ply(ply: Path, texture_name: str, obj_path: Path, flip_v: b
         np.savetxt(fh, uv, fmt="vt %.6f %.6f")
         np.savetxt(fh, faces, fmt="f %d/%d %d/%d %d/%d")
     mtl_path.write_text(f"newmtl scan\nKa 1 1 1\nKd 1 1 1\nmap_Kd {texture_name}\n")
-    return {"obj": obj_path.name, "vertices": int(len(verts)), "faces": int(nf), "flip_v": flip_v}
+    return {"obj": obj_path.name, "vertices": int(len(verts)), "faces": int(nf), "trimmed_faces": original_faces - nf, "flip_v": flip_v}

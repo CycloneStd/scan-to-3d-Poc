@@ -4,7 +4,7 @@ import logging
 import shutil
 from pathlib import Path
 
-import cv2
+from PIL import Image
 
 from ..pipeline import Context, Stage
 from ..remote.bundle import pack, sha256, unpack
@@ -26,10 +26,8 @@ def make_upload_workspace(src: Path, dst: Path, quality: int) -> None:
         out = dst / "images" / p.relative_to(src / "images")
         out.parent.mkdir(parents=True, exist_ok=True)
         if p.suffix.lower() in (".jpg", ".jpeg"):
-            img = cv2.imread(str(p), cv2.IMREAD_COLOR)
-            if img is None:
-                raise RuntimeError(f"Could not read {p}")
-            cv2.imwrite(str(out), img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+            with Image.open(p) as image:
+                image.convert("RGB").save(out, quality=quality)
         else:
             shutil.copy2(p, out)
 

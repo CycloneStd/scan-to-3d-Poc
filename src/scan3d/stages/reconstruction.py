@@ -19,6 +19,7 @@ class ReconstructionStage(Stage):
 
     def config_slice(self, cfg):
         return {
+            "implementation": 2, "mesh": cfg["mesh"], "ar": cfg["ar"],
             "features": cfg["features"],
             "sparse": cfg["sparse"],
             "undistort": cfg["undistort"],
@@ -32,36 +33,13 @@ class ReconstructionStage(Stage):
         cfg = ctx.cfg
         out = ctx.run.stage_dir(self.dir_name)
 
-        # If reconstruction artifacts already exist locally (e.g. from retried job), reuse without Colab
-        if (out / "fused.ply").exists() and ((out / "mesh" / "textured" / "mesh.ply").exists() or (ctx.run.stage_dir("07_mesh") / "textured" / "mesh.ply").exists()):
-            log.info("Reconstruction artifacts already exist in %s; reusing without launching Colab", out)
-            mesh_stage_dir = ctx.run.stage_dir("07_mesh")
-            remote_mesh = out / "mesh"
-            if remote_mesh.exists():
-                for p in remote_mesh.iterdir():
-                    dest = mesh_stage_dir / p.name
-                    if p.is_dir():
-                        shutil.copytree(p, dest, dirs_exist_ok=True)
-                    elif not dest.exists():
-                        shutil.copy2(p, dest)
-
-            ar_stage_dir = ctx.run.stage_dir("11_ar")
-            remote_ar = out / "ar"
-            if remote_ar.exists():
-                for p in remote_ar.iterdir():
-                    dest = ar_stage_dir / p.name
-                    if p.is_dir():
-                        shutil.copytree(p, dest, dirs_exist_ok=True)
-                    elif not dest.exists():
-                        shutil.copy2(p, dest)
-
-            for stage in ("features", "sparse", "undistort", "dense"):
-                ctx.manifest.update(stage, status="done", finished="remote-complete")
-            recon_entry = ctx.manifest.get("reconstruction") or {}
-            metrics = recon_entry.get("metrics") or {}
-            if metrics:
-                return metrics
-
+        dense = cfg["dense"]
+        if dense["backend"] not in {"colmap", "openmvs"}:
+            raise ValueError("dense.backend must be colmap or openmvs")
+        if not 0 <= dense["min_registered_fraction"] <= 1:
+            raise ValueError("dense.min_registered_fraction must be between zero and one")
+        if dense["source_views"] < 1 or (dense["view_limit"] != 0 and dense["view_limit"] < 3):
+            raise ValueError("dense.source_views must be positive and view_limit must be zero or at least three")
         accepted = json.loads((ctx.run.stage_dir("02_validate") / "accepted.json").read_text())
         ingest_dir = ctx.run.stage_dir("01_ingest")
         input_dir = out / "upload" / "input"
@@ -74,6 +52,9 @@ class ReconstructionStage(Stage):
             for paths in accepted.values()
             for relative in paths
         )
+        validation = json.loads((ctx.run.stage_dir("02_validate") / "validate.json").read_text())
+        soft_views = [Path(row["path"]).relative_to(ingest_dir / "images").as_posix()
+                      for row in validation["images"] if row["flags"]]
         if not image_names:
             raise RuntimeError("Image validation accepted no photos for reconstruction.")
         for name in image_names:
@@ -83,6 +64,7 @@ class ReconstructionStage(Stage):
             shutil.copy2(source, destination)
         (input_dir / "image_list.txt").write_text("\n".join(image_names), encoding="utf-8")
 
+        shutil.copy2(Path(__file__).parents[1] / "remote" / "learned_sparse.py", input_dir)
         input_tar = out / "colab_input.tar.gz"
         digest = pack({"input": input_dir}, input_tar)
         upload_mb = round(input_tar.stat().st_size / 1e6, 1)
@@ -97,7 +79,7 @@ class ReconstructionStage(Stage):
         result_tar = out / "colab_result.tar.gz"
         result = None
         with executor.open_session():
-            parts = executor.upload_chunked(input_tar, parts_prefix, chunk_mb)
+            parts = executor.upload_chunked(input_tar, parts_prefix, chunk_mb, workers=int(remote["upload_workers"]))
             result = executor.run_job({
                 "action": "reconstruct_mesh",
                 "job_id": ctx.run.root.name,
@@ -107,6 +89,12 @@ class ReconstructionStage(Stage):
                 "sha256": digest,
                 "chunk_bytes": chunk_mb * 1024 * 1024,
                 "image_count": len(image_names),
+                "soft_views": soft_views,
+                "learned_recovery": cfg["features"]["learned_recovery"],
+                "dense_backend": cfg["dense"]["backend"],
+                "min_registered_fraction": cfg["dense"]["min_registered_fraction"],
+                "view_limit": cfg["dense"]["view_limit"],
+                "source_views": cfg["dense"]["source_views"],
                 "matcher": effective_matcher(cfg),
                 "sequential_overlap": int(cfg["features"]["sequential_overlap"]),
                 "camera_model": cfg["features"]["camera_model"],
@@ -137,35 +125,20 @@ class ReconstructionStage(Stage):
         data = result["data"]
         if sha256(result_tar) != data["result_sha256"]:
             raise RuntimeError("Downloaded Colab reconstruction failed its checksum; retry the scan.")
+        for name in ("mesh", "ar", "workspace", "best_model_txt"):
+            shutil.rmtree(out / name, ignore_errors=True)
         unpack(result_tar, out)
         shutil.rmtree(out / "remote", ignore_errors=True)
         input_tar.unlink(missing_ok=True)
         result_tar.unlink(missing_ok=True)
 
-        mesh_stage_dir = ctx.run.stage_dir("07_mesh")
-        remote_mesh = out / "mesh"
-        if remote_mesh.exists():
-            for p in remote_mesh.iterdir():
-                dest = mesh_stage_dir / p.name
-                if p.is_dir():
-                    shutil.copytree(p, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(p, dest)
-
-        ar_stage_dir = ctx.run.stage_dir("11_ar")
-        remote_ar = out / "ar"
-        if remote_ar.exists():
-            for p in remote_ar.iterdir():
-                dest = ar_stage_dir / p.name
-                if p.is_dir():
-                    shutil.copytree(p, dest, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(p, dest)
-
         for stage in ("features", "sparse", "undistort", "dense"):
             ctx.manifest.update(stage, status="done", finished="remote-complete")
         return {
             "input_images": len(image_names),
+            "dense_views": data["dense_views"],
+            "seconds_recovery": data["seconds_recovery"],
+            "dense_backend": cfg["dense"]["backend"],
             "registered_by_group": data["registered_by_group"],
             "best_model": data["best_model"],
             "matcher": data["matcher"],
@@ -185,6 +158,7 @@ class ReconstructionStage(Stage):
             "full_faces": data.get("full_faces"),
             "mesh_vertices": data.get("mesh_vertices"),
             "mesh_faces": data.get("mesh_faces"),
+            "ar_reuses_mesh": data["ar_reuses_mesh"],
             "seconds_ar_simplify": data.get("seconds_ar_simplify"),
             "seconds_ar_texture": data.get("seconds_ar_texture"),
             "upload_mb": upload_mb,

@@ -17,13 +17,13 @@ REQUIRED = {
 }
 
 DEFAULTS = {
-    "undistort": {"max_image_size": 1500},
-    "dense": {"geom_consistency": True, "window_step": 2, "max_image_size": 1500, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
+    "undistort": {"max_image_size": 2400},
+    "dense": {"backend": "colmap", "geom_consistency": True, "min_registered_fraction": 0.7, "view_limit": 48, "source_views": 6, "window_step": 2, "max_image_size": 1500, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
     "mesh": {"texture": True, "target_face_ratio": 0.05, "poisson_depth": 13, "poisson_trim": 1},
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},
     "video": {"select": "sharpest", "oversample": 3},
-    "features": {"matcher": "auto", "sequential_overlap": 15, "max_image_size": 2000, "num_threads": 1},
+    "features": {"learned_recovery": True, "matcher": "auto", "sequential_overlap": 15, "max_image_size": 2000, "num_threads": 1},
     "remote": {"high_mem": False, "chunk_mb": 4, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
                "upload_workers": 4},
     "splat": {"max_steps": 30000, "data_factor": 1, "upload_jpeg_quality": 90,

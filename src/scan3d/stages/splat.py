@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import cv2
+from PIL import Image
 
 from ..pipeline import Context, Stage
 from ..remote.bundle import pack, unpack
@@ -30,10 +30,8 @@ def check_workspace(binary: str, ws: Path, tmp: Path) -> None:
         if len(f) >= 10:
             seen.setdefault(f[8], f[9])
     for cam_id, name in seen.items():
-        image = cv2.imread(str(ws / "images" / name))
-        if image is None:
-            raise RuntimeError(f"Could not read image {name} while checking camera dimensions")
-        h, w = image.shape[:2]
+        with Image.open(ws / "images" / name) as image:
+            w, h = image.size
         cw, ch = cams[cam_id]
         if abs(w - cw) > 1 or abs(h - ch) > 1:
             raise RuntimeError(f"Camera {cam_id} says {cw}x{ch} but {name} is {w}x{h}")

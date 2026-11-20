@@ -150,7 +150,6 @@ activemq-data/
 *.sage.py
 
 # Environments
-.env
 .envrc
 .venv
 /webxr/backend/colab-config/
@@ -228,3 +227,5 @@ runs/
 exports/
 web/assets/*
 results/*
+config.bat
+node_modules

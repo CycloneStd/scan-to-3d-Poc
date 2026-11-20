@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-import cv2
+from PIL import Image
 
 from ..ar import estimate_up, orient_obj
 from ..pipeline import Context, Stage
@@ -31,20 +31,18 @@ class ArStage(Stage):
         reconstruction_dir = ctx.run.stage_dir("06_reconstruction")
         remote_ar = reconstruction_dir / "ar"
 
-        # Check if remote Colab reconstruction already generated the textured AR mesh
-        if (remote_ar / "textured" / "mesh.ply").exists() or (out / "textured" / "mesh.ply").exists():
-            if remote_ar.exists():
-                for p in remote_ar.iterdir():
-                    dest = out / p.name
-                    if p.is_dir():
-                        shutil.copytree(p, dest, dirs_exist_ok=True)
-                    elif not dest.exists():
-                        shutil.copy2(p, dest)
+        if ctx.manifest.get("reconstruction")["metrics"].get("ar_reuses_mesh"):
+            remote_ar = reconstruction_dir / "mesh"
+        if (remote_ar / "textured" / "mesh.ply").exists():
             textured = out / "textured"
+            shutil.rmtree(textured, ignore_errors=True)
+            shutil.copytree(remote_ar / "textured", textured)
         else:
             for path in out.iterdir():
                 shutil.rmtree(path) if path.is_dir() else path.unlink()
             full = ctx.run.stage_dir("07_mesh") / "meshed-poisson.ply"
+            if not full.exists():
+                full = ctx.run.stage_dir("07_mesh") / "meshed-full.ply"
             if not full.exists():
                 full = ctx.run.stage_dir("07_mesh") / "meshed-simplified.ply"
             full_faces = ply_counts(full)["face"] if full.exists() else 0
@@ -61,18 +59,10 @@ class ArStage(Stage):
 
         obj = out / "mesh_ar.obj"
         convert_textured_ply(textured / "mesh.ply", "texture_ar.jpg", obj,
-                             flip_v=cfg["export"]["flip_v"])
-        image = cv2.imread(str(textured / "texture.png"))
-        if image is None:
-            raise RuntimeError(f"Could not read texture image {textured / 'texture.png'}")
-        height, width = image.shape[:2]
-        factor = min(1.0, ar["texture_px"] / max(height, width))
-        if factor < 1.0:
-            image = cv2.resize(image, (int(width * factor), int(height * factor)),
-                               interpolation=cv2.INTER_AREA)
-        if not cv2.imwrite(str(out / "texture_ar.jpg"), image,
-                           [cv2.IMWRITE_JPEG_QUALITY, int(ar["jpeg_quality"])]):
-            raise RuntimeError(f"Could not write texture image {out / 'texture_ar.jpg'}")
+                             flip_v=cfg["export"]["flip_v"], max_edge_factor=cfg["mesh"].get("max_edge_factor"))
+        with Image.open(textured / "texture.png") as image:
+            image.thumbnail((ar["texture_px"], ar["texture_px"]), Image.Resampling.LANCZOS)
+            image.convert("RGB").save(out / "texture_ar.jpg", quality=int(ar["jpeg_quality"]))
         shutil.rmtree(textured, ignore_errors=True)
 
         images_txt = reconstruction_dir / "best_model_txt" / "images.txt"
@@ -80,7 +70,7 @@ class ArStage(Stage):
         info = orient_obj(obj, up, ar.get("scale_factor"))
 
         script = Path(__file__).resolve().parents[1] / "validation" / "ar_export.py"
-        run([cfg["blender"]["binary"], "-b", "--factory-startup", "--python", script, "--",
+        run([cfg["blender"]["binary"], "-b", "--factory-startup", "--python-exit-code", "1", "--python", script, "--",
              "--input", obj.resolve(), "--outdir", out.resolve(), "--name", "model_ar"],
             log_file=log_file)
         report_path = out / "ar_report.json"

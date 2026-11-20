@@ -5,11 +5,12 @@ import logging
 import shutil
 from pathlib import Path
 
-import cv2
+from PIL import Image
 
 from ..pipeline import Context, Stage
-from ..project import files_signature
+from ..project import files_signature, fingerprint
 from ..utils.proc import run
+from ..utils.image import grayscale_preview, sharpness
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png"}
 
@@ -22,6 +23,18 @@ def _photos(cfg: dict) -> list[Path]:
     return sorted(p for p in d.iterdir() if p.suffix.lower() in IMAGE_EXT) if d.is_dir() else []
 
 
+def camera_group(path: Path) -> str:
+    try:
+        with Image.open(path) as image:
+            exif = image.getexif()
+            lens = exif.get_ifd(0x8769)
+            key = [image.size, exif.get(271), exif.get(272), lens.get(42036),
+                   str(lens.get(37386)), lens.get(41989), exif.get(274, 1)]
+            return "photos_" + fingerprint(key)
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return "photos_unknown"
+
+
 def _videos(cfg: dict) -> list[Path]:
     return [Path(v) for v in cfg["inputs"].get("videos") or []]
 
@@ -32,8 +45,11 @@ def keep_sharpest(gdir: Path, window: int) -> None:
         chunk = files[i:i + window]
         scores = []
         for f in chunk:
-            gray = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
-            scores.append(float(cv2.Laplacian(gray, cv2.CV_64F).var()) if gray is not None else -1.0)
+            try:
+                _, gray = grayscale_preview(f)
+                scores.append(sharpness(gray))
+            except (OSError, ValueError):
+                scores.append(-1.0)
         best = max(range(len(chunk)), key=scores.__getitem__)
         for j, f in enumerate(chunk):
             if j != best:
@@ -49,7 +65,7 @@ class IngestStage(Stage):
         if _videos(cfg):
             video["select"] = cfg["video"]["select"]
             video["oversample"] = cfg["video"]["oversample"]
-        return {"inputs": cfg["inputs"], "video": video}
+        return {"camera_grouping_version": 1, "inputs": cfg["inputs"], "video": video}
 
     def input_signature(self, ctx):
         return files_signature(_photos(ctx.cfg) + _videos(ctx.cfg))
@@ -63,21 +79,28 @@ class IngestStage(Stage):
 
         photos = _photos(ctx.cfg)
         if photos:
-            gdir = images / "photos"
-            gdir.mkdir(parents=True)
             for p in photos:
-                (gdir / p.name).symlink_to(p.resolve())
-            groups["photos"] = [f"images/photos/{p.name}" for p in photos]
+                group = camera_group(p)
+                gdir = images / group
+                gdir.mkdir(parents=True, exist_ok=True)
+                name = fingerprint(p.name) + p.suffix.lower() if any(c.isspace() for c in p.name) else p.name
+                target = gdir / name
+                try:
+                    target.symlink_to(p.resolve())
+                except OSError:
+                    shutil.copy2(p, target)
+                groups.setdefault(group, []).append(f"images/{group}/{name}")
 
         vcfg = ctx.cfg["video"]
         sharpest = vcfg.get("select", "sharpest") == "sharpest"
         over = int(vcfg.get("oversample", 3)) if sharpest else 1
         for v in _videos(ctx.cfg):
-            group = f"video_{v.stem}"
+            stem = fingerprint(v.name) if any(c.isspace() for c in v.stem) else v.stem
+            group = f"video_{stem}"
             gdir = images / group
             gdir.mkdir(parents=True)
             run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", v, "-vf",
-                 f"fps={vcfg['fps'] * over}", "-q:v", vcfg["jpeg_quality"], gdir / f"{v.stem}_%05d.jpg"],
+                 f"fps={vcfg['fps'] * over}", "-q:v", vcfg["jpeg_quality"], gdir / f"{stem}_%05d.jpg"],
                 log_file=ctx.run.root / "logs" / "ingest_ffmpeg.log")
             if over > 1:
                 keep_sharpest(gdir, over)
