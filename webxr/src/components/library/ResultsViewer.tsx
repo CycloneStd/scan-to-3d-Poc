@@ -295,7 +295,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     setLoadError(false)
     setLoading(true)
 
-    async function loadArtifact() {
+    async function loadArtifact(artifact: ScanArtifact, modelRoot: THREE.Group) {
       try {
         let loaded: THREE.Object3D
         const blob = await scansApi.artifact(artifact.id)
@@ -373,7 +373,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
       }
     }
 
-    void loadArtifact().catch((error: unknown) => {
+    void loadArtifact(artifact, modelRoot).catch((error: unknown) => {
       if (!cancelled) {
         console.error('The scan result could not be loaded into the viewer.', error)
         setLoadError(true)

@@ -23,15 +23,12 @@ class MeshStage(Stage):
         remote_mesh = reconstruction_dir / "mesh"
 
         # Check if remote Colab reconstruction already generated the mesh
-        if (remote_mesh / "textured" / "mesh.ply").exists() or (out / "textured" / "mesh.ply").exists():
-            if remote_mesh.exists():
-                for p in remote_mesh.iterdir():
-                    dest = out / p.name
-                    if p.is_dir():
-                        shutil.copytree(p, dest, dirs_exist_ok=True)
-                    elif not dest.exists():
-                        shutil.copy2(p, dest)
-            full = out / "meshed-poisson.ply"
+        if (remote_mesh / "meshed-full.ply").exists() or (remote_mesh / "textured" / "mesh.ply").exists():
+            shutil.rmtree(out)
+            shutil.copytree(remote_mesh, out)
+            full = out / "meshed-full.ply"
+            if not full.exists():
+                full = out / "meshed-poisson.ply"
             simplified = out / "meshed-simplified.ply"
             mesh_for_texture = simplified if simplified.exists() else full
             c_full = ply_counts(full) if full.exists() else {}

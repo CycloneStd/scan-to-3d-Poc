@@ -31,7 +31,7 @@ colmap:
 features:
   camera_model: SIMPLE_RADIAL
   use_gpu: false
-  matcher: sequential
+  matcher: auto
   sequential_overlap: 15
   # Bound CPU feature extraction memory on small cloud worker instances.
   max_image_size: 2000
@@ -40,15 +40,16 @@ features:
 dense:
   geom_consistency: true
   window_step: 2
-  max_image_size: 1500
+  max_image_size: 1024
 
 sparse:
   mapper: incremental
 
 mesh:
+  max_edge_factor: 12
   texture: true
   target_face_ratio: 0.05
-  poisson_depth: 13
+  poisson_depth: 10
   poisson_trim: 1
 splat:
   max_steps: 30000

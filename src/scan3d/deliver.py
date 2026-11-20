@@ -131,7 +131,7 @@ def deliver(run_dir: Path, out: Path) -> dict:
 
     rows = []
     for path in sorted(out.rglob("*")):
-        relative = str(path.relative_to(out))
+        relative = path.relative_to(out).as_posix()
         if path.is_file() and relative not in ("README.md", "manifest.json"):
             description = DESCRIPTIONS.get(
                 relative, "Render of the full mesh (axis-aligned view)" if relative.startswith("report/view_") else "")
@@ -153,7 +153,7 @@ def deliver(run_dir: Path, out: Path) -> dict:
         "quality numbers and anything not included.\n")
 
     manifest["files"] = [
-        {"file": str(path.relative_to(out)), "bytes": path.stat().st_size, "sha256": _sha(path)}
+        {"file": path.relative_to(out).as_posix(), "bytes": path.stat().st_size, "sha256": _sha(path)}
         for path in sorted(out.rglob("*")) if path.is_file() and path.name != "manifest.json"
     ]
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))

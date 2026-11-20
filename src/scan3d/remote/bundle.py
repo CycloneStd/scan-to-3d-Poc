@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def pack(sources: dict[str, Path], out: Path) -> str:
-    with tarfile.open(out, "w:gz", dereference=True) as tar:
+    with tarfile.open(out, "w:gz", compresslevel=1, dereference=True) as tar:
         for arcname, src in sources.items():
             tar.add(src, arcname=arcname)
     return sha256(out)

@@ -132,7 +132,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push', has
     else if (destination.href !== url.href) window.history.replaceState(null, '', destination)
     activeUrl = `${destination.pathname}${destination.search}${destination.hash}`
   }
-  appRoot.render(createElement(StrictMode, null, createElement(RouteCommit, { onCommit: commit }, createElement(loaded.page.default))))
+  appRoot.render(createElement(StrictMode, null, createElement(RouteCommit, { onCommit: commit, children: createElement(loaded.page.default) })))
 }
 
 function showInitialLoadError() {

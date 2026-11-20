@@ -326,8 +326,11 @@ export default function LibraryPage() {
   const selectedArtifact = selectedScan ? resultArtifact(selectedScan) : null
   const selectedImages = selectedScan?.assets.filter((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/')) ?? []
   const selectedImageIds = selectedImages.map((asset) => asset.id).join(',')
-  const selectedExports = selectedScan?.artifacts.filter((artifact) => ['glb', 'obj', 'ply'].includes(fileExtension(artifact.filename))) ?? []
-  const selectedExport = selectedExports.find((artifact) => fileExtension(artifact.filename).toUpperCase() === exportFormat)
+  const objBundle = selectedScan?.artifacts.find((artifact) => artifact.filename === 'model-obj.zip')
+  const downloadFormat = (filename: string) => filename === 'model-obj.zip' ? 'obj' : fileExtension(filename)
+  const selectedExports = selectedScan?.artifacts.filter((artifact) =>
+    artifact.id === objBundle?.id || ['glb', 'ply', ...(objBundle ? [] : ['obj'])].includes(fileExtension(artifact.filename))) ?? []
+  const selectedExport = selectedExports.find((artifact) => downloadFormat(artifact.filename).toUpperCase() === exportFormat)
 
   useEffect(() => {
     if (selectedImages.length < 2) return
@@ -339,8 +342,8 @@ export default function LibraryPage() {
   }, [selectedScan?.id, selectedImageIds, sourceImageIndex])
 
   useEffect(() => {
-    const preferred = selectedExports.find((artifact) => fileExtension(artifact.filename).toUpperCase() === exportFormat)
-    if (!preferred && selectedExports[0]) setExportFormat(fileExtension(selectedExports[0].filename).toUpperCase() as 'GLB' | 'OBJ' | 'PLY')
+    const preferred = selectedExports.find((artifact) => downloadFormat(artifact.filename).toUpperCase() === exportFormat)
+    if (!preferred && selectedExports[0]) setExportFormat(downloadFormat(selectedExports[0].filename).toUpperCase() as 'GLB' | 'OBJ' | 'PLY')
   }, [selectedScan?.id, selectedExports.map((artifact) => artifact.id).join(',')])
 
   function renameScan(id: string, name: string) {
@@ -746,7 +749,7 @@ export default function LibraryPage() {
                       <div className="model-export-select-wrap">
                         <select aria-label="Export format" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as 'GLB' | 'OBJ' | 'PLY')}>
                           <option value="GLB" disabled={!selectedExports.some((artifact) => fileExtension(artifact.filename) === 'glb')}>GLB</option>
-                          <option value="OBJ" disabled={!selectedExports.some((artifact) => fileExtension(artifact.filename) === 'obj')}>OBJ</option>
+                          <option value="OBJ" disabled={!selectedExports.some((artifact) => downloadFormat(artifact.filename) === 'obj')}>OBJ</option>
                           <option value="PLY" disabled={!selectedExports.some((artifact) => fileExtension(artifact.filename) === 'ply')}>PLY</option>
                         </select>
                         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>

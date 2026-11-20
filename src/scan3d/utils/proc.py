@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
-import resource
+try:
+    import resource
+except ImportError:  # Windows
+    resource = None
 import subprocess
 import time
 
@@ -16,7 +19,7 @@ log = logging.getLogger("scan3d.proc")
 class ProcResult:
     returncode: int
     seconds: float
-    peak_children_rss_mb: float
+    peak_children_rss_mb: float | None
 
 def run(cmd: Sequence, *, log_file: Path | None = None, cwd=None, check: bool = True) -> ProcResult:
     cmd = [str(c) for c in cmd]
@@ -34,7 +37,7 @@ def run(cmd: Sequence, *, log_file: Path | None = None, cwd=None, check: bool = 
     res = ProcResult(
         proc.returncode,
         round(time.perf_counter() - start, 2),
-        round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024, 1)
+        round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024, 1) if resource else None
     )
     if check and proc.returncode != 0:
         where = f" (see {log_file})" if log_file else ""
