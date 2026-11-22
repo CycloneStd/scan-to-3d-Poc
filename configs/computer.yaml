@@ -9,6 +9,8 @@ inputs:
 video:
   fps: 2.0
   jpeg_quality: 2
+  select: motion_sharpest
+  oversample: 3
 
 validation:
   min_short_side: 600
@@ -30,6 +32,23 @@ colmap:
 features:
   camera_model: SIMPLE_RADIAL
   use_gpu: false
+  learned_recovery: true
+  matcher: auto
+  sequential_overlap: 15
+  max_image_size: 2000
+  num_threads: 1
+
+dense:
+  backend: colmap
+  geom_consistency: true
+  min_registered_fraction: 0.7
+  view_limit: 48
+  source_views: 6
+  window_step: 2
+  max_image_size: 1024
+
+undistort:
+  max_image_size: 2400
 
 sparse: 
   mapper: incremental

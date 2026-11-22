@@ -271,10 +271,30 @@ def recover_with_hloc(work, source, images, camera_model):
     if not Path(python).exists():
         subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(environment)], check=True)
     revision = "c13273bd0ecc2917a35910fd843712a1c6243193"
-    requirement = f"git+https://github.com/cvg/Hierarchical-Localization.git@{revision}#egg=hloc"
-    rc, tail = stream([python, "-m", "pip", "install", "-e", requirement, "pycolmap==4.2.1"])
+    lightglue_revision = "5a650c444718caffc2669dc0094cde908f42dd73"
+    hloc_source = Path(work) / "Hierarchical-Localization"
+    rc, tail = stream([
+        "git", "clone", "--recursive", "https://github.com/cvg/Hierarchical-Localization.git",
+        str(hloc_source),
+    ])
     if rc:
-        raise RuntimeError("Learned frontend installation failed: " + tail[-1200:])
+        raise RuntimeError("Could not fetch the learned feature frontend: " + tail[-1200:])
+    rc, tail = stream(["git", "-C", str(hloc_source), "checkout", revision])
+    if rc:
+        raise RuntimeError("Could not select the pinned learned frontend: " + tail[-1200:])
+    rc, tail = stream(["git", "-C", str(hloc_source), "submodule", "update", "--init", "--recursive"])
+    if rc:
+        raise RuntimeError("Could not fetch learned frontend submodules: " + tail[-1200:])
+    requirements = [
+        [python, "-m", "pip", "install", "--no-deps", "-e", str(hloc_source)],
+        [python, "-m", "pip", "install", "--no-deps", "pycolmap==4.2.1"],
+        [python, "-m", "pip", "install", "--no-deps",
+         f"git+https://github.com/cvg/LightGlue.git@{lightglue_revision}"],
+    ]
+    for command in requirements:
+        rc, tail = stream(command)
+        if rc:
+            raise RuntimeError("Could not install the learned feature frontend: " + tail[-1200:])
     destination = Path(work) / "learned_model"
     rc, tail = stream([python, str(Path(source) / "learned_sparse.py"), images, str(destination), camera_model])
     if rc:

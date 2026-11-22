@@ -5,6 +5,7 @@ import logging
 import shutil
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from ..pipeline import Context, Stage
@@ -39,18 +40,47 @@ def _videos(cfg: dict) -> list[Path]:
     return [Path(v) for v in cfg["inputs"].get("videos") or []]
 
 
-def keep_sharpest(gdir: Path, window: int) -> None:
+def _frame_motion(gray, previous_gray) -> float:
+    if previous_gray is None:
+        return 1.0
+    current = np.asarray(
+        Image.fromarray(gray).resize((64, 64), Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    )
+    previous = np.asarray(
+        Image.fromarray(previous_gray).resize((64, 64), Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    )
+    return float(np.abs(current - previous).mean() / 255.0)
+
+
+def keep_sharpest(gdir: Path, window: int, motion_aware: bool = False) -> None:
     files = sorted(gdir.glob("*.jpg"))
+    previous_gray = None
     for i in range(0, len(files), window):
         chunk = files[i:i + window]
-        scores = []
+        candidates = []
         for f in chunk:
             try:
                 _, gray = grayscale_preview(f)
-                scores.append(sharpness(gray))
+                candidates.append((f, max(0.0, sharpness(gray)), gray))
             except (OSError, ValueError):
+                candidates.append((f, 0.0, None))
+
+        sharpest = max((candidate[1] for candidate in candidates), default=0.0)
+        scores = []
+        for _, score, gray in candidates:
+            if sharpest == 0:
                 scores.append(-1.0)
-        best = max(range(len(chunk)), key=scores.__getitem__)
+                continue
+            score /= sharpest
+            if motion_aware and gray is not None:
+                motion = min(1.0, _frame_motion(gray, previous_gray) / 0.2)
+                score *= 0.5 + 0.5 * motion
+            scores.append(score)
+        best = max(range(len(candidates)), key=scores.__getitem__)
+        if candidates[best][2] is not None:
+            previous_gray = candidates[best][2]
         for j, f in enumerate(chunk):
             if j != best:
                 f.unlink()
@@ -65,7 +95,12 @@ class IngestStage(Stage):
         if _videos(cfg):
             video["select"] = cfg["video"]["select"]
             video["oversample"] = cfg["video"]["oversample"]
-        return {"camera_grouping_version": 1, "inputs": cfg["inputs"], "video": video}
+        return {
+            "camera_grouping_version": 1,
+            "video_selector_version": 2,
+            "inputs": cfg["inputs"],
+            "video": video,
+        }
 
     def input_signature(self, ctx):
         return files_signature(_photos(ctx.cfg) + _videos(ctx.cfg))
@@ -92,7 +127,12 @@ class IngestStage(Stage):
                 groups.setdefault(group, []).append(f"images/{group}/{name}")
 
         vcfg = ctx.cfg["video"]
-        sharpest = vcfg.get("select", "sharpest") == "sharpest"
+        selection = vcfg.get("select", "sharpest")
+        if selection not in {"sharpest", "motion_sharpest", "all"}:
+            raise ValueError("video.select must be sharpest, motion_sharpest or all")
+        if float(vcfg["fps"]) <= 0 or int(vcfg.get("oversample", 3)) < 1:
+            raise ValueError("video.fps and video.oversample must be positive")
+        sharpest = selection in {"sharpest", "motion_sharpest"}
         over = int(vcfg.get("oversample", 3)) if sharpest else 1
         for v in _videos(ctx.cfg):
             stem = fingerprint(v.name) if any(c.isspace() for c in v.stem) else v.stem
@@ -103,7 +143,7 @@ class IngestStage(Stage):
                  f"fps={vcfg['fps'] * over}", "-q:v", vcfg["jpeg_quality"], gdir / f"{stem}_%05d.jpg"],
                 log_file=ctx.run.root / "logs" / "ingest_ffmpeg.log")
             if over > 1:
-                keep_sharpest(gdir, over)
+                keep_sharpest(gdir, over, motion_aware=selection == "motion_sharpest")
             groups[group] = sorted(f"images/{group}/{f.name}" for f in gdir.glob("*.jpg"))
 
         raw = ctx.cfg["inputs"].get("photos_dir")
