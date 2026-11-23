@@ -6,7 +6,7 @@ dependencies:
   - colmap=4.2
   - ffmpeg
   - numpy
-  - opencv
+  - pillow
   - dbus
   - fontconfig
   - freetype

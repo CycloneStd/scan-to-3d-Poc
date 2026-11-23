@@ -29,16 +29,16 @@ colmap:
 features: 
   camera_model: SIMPLE_RADIAL
   use_gpu: false
-  matcher: sequential
+  matcher: auto
   sequential_overlap: 15
 
 dense:
   geom_consistency: true
   window_step: 2
-  max_image_size: 1500
+  max_image_size: 1024
 
 undistort:
-  max_image_size: 1500
+  max_image_size: 2400
 
 sparse: 
   mapper: incremental
@@ -46,5 +46,5 @@ sparse:
 mesh:
   texture: true
   target_face_ratio: 0.05
-  poisson_depth: 13
+  poisson_depth: 10
   poisson_trim: 1

@@ -24,7 +24,7 @@ TRACK_STAGES = {
     "mesh": ["ingest", "validate", "features", "sparse", "undistort", "dense", "mesh", "export", "ar"],
     "splat": ["ingest", "validate", "features", "sparse", "undistort", "splat"],
 }
-ARTIFACT_SUFFIXES = {".glb", ".gltf", ".obj", ".ply", ".usdz", ".spz", ".png", ".jpg", ".webp"}
+ARTIFACT_SUFFIXES = {".glb", ".gltf", ".obj", ".zip", ".ply", ".usdz", ".spz", ".png", ".jpg", ".webp"}
 
 
 def _set_job(job_id: uuid.UUID, **updates) -> None:
@@ -82,38 +82,6 @@ def _cancel_remote_job(job_id: uuid.UUID, config_path: Path) -> None:
         logger.info("Terminated Colab runtime for scan job %s", job_id)
     except Exception:
         logger.exception("Could not stop Colab runtime for scan job %s", job_id)
-
-
-def _reuse_previous_reconstruction(current_job_id: uuid.UUID, scan_id: uuid.UUID, run_dir: Path) -> bool:
-    settings = get_settings()
-    with SessionLocal() as db:
-        prev_jobs = list(db.scalars(
-            select(ScanJob)
-            .where(ScanJob.scan_id == scan_id, ScanJob.id != current_job_id)
-            .order_by(ScanJob.created_at.desc())
-        ))
-    for prev in prev_jobs:
-        prev_job_dir = settings.pipeline_work_root.resolve() / str(prev.id)
-        prev_run_dir = prev_job_dir / "runs" / str(prev.id)
-        prev_recon = prev_run_dir / "06_reconstruction"
-        prev_manifest = prev_run_dir / "manifest.json"
-        if (prev_recon / "fused.ply").exists() and prev_manifest.exists():
-            try:
-                manifest_data = json.loads(prev_manifest.read_text(encoding="utf-8"))
-                if manifest_data.get("stages", {}).get("reconstruction", {}).get("status") == "done":
-                    target_recon = run_dir / "06_reconstruction"
-                    target_recon.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copytree(prev_recon, target_recon, dirs_exist_ok=True)
-                    for stage_dir in ("07_mesh", "11_ar"):
-                        if (prev_run_dir / stage_dir).exists():
-                            shutil.copytree(prev_run_dir / stage_dir, run_dir / stage_dir, dirs_exist_ok=True)
-                    target_manifest = run_dir / "manifest.json"
-                    target_manifest.parent.mkdir(parents=True, exist_ok=True)
-                    target_manifest.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
-                    return True
-            except Exception:
-                pass
-    return False
 
 
 def _progress_from_manifest(manifest_path: Path, stages: list[str]) -> tuple[int, str | None, dict]:
@@ -181,7 +149,7 @@ def _upload_artifacts(job: ScanJob, scan: Scan, run_dir: Path) -> list[ScanArtif
                 kind = "texture"
             else:
                 kind = "thumbnail"
-        elif suffix in {".glb", ".gltf", ".obj", ".usdz"}:
+        elif suffix in {".glb", ".gltf", ".obj", ".zip", ".usdz"}:
             kind = "model"
         else:
             kind = "point_cloud"
@@ -287,8 +255,6 @@ def run_scan_job(self, job_id_text: str):
                 scan_record.status = "processing"
                 db.commit()
         started = time.monotonic()
-        if _reuse_previous_reconstruction(job_id, scan_id, run_dir):
-            logger.info("[job %s] Reusing successful reconstruction from earlier attempt; skipping remote Colab run!", str(job_id)[:8])
         logger.info("[job %s] Starting pipeline for scan %s (%s) with %d input asset(s)",
                     str(job_id)[:8], scan_id, scan_name, len(assets))
         with log_path.open("wb") as log_file:

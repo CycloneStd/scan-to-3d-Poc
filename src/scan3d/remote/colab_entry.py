@@ -179,7 +179,7 @@ def dense(job):
 
         t0 = time.time()
         rc, tail = stream(colmap + ["stereo_fusion", "--workspace_path", ws, "--workspace_format", "COLMAP",
-                                    "--input_type", "geometric", "--output_path", f"{ws}/fused.ply"])
+                                    "--input_type", "geometric" if job["geom_consistency"] else "photometric", "--output_path", f"{ws}/fused.ply"])
         t_fu = round(time.time() - t0, 1)
         if rc != 0:
             att["failed"] = "stereo_fusion: " + tail[-600:]
@@ -195,6 +195,91 @@ def dense(job):
                 "result_parts": n_parts, "result_sha256": sha256(result_tar)}
 
     raise RuntimeError("All COLMAP CUDA attempts failed:\n" + json.dumps(attempts, indent=2))
+
+
+def dense_view_names(images_txt, soft_views, limit):
+    """Sample registered camera positions and orientations, preferring sharp nearby views."""
+    import numpy as np
+
+    lines = [line for line in Path(images_txt).read_text().splitlines() if not line.startswith("#")]
+    names, centers, directions = [], [], []
+    for header in lines[::2]:
+        fields = header.split(maxsplit=9)
+        w, x, y, z, tx, ty, tz = map(float, fields[1:8])
+        rotation = np.array([
+            [1-2*(y*y+z*z), 2*(x*y-z*w), 2*(x*z+y*w)],
+            [2*(x*y+z*w), 1-2*(x*x+z*z), 2*(y*z-x*w)],
+            [2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y)],
+        ])
+        names.append(fields[9])
+        centers.append(-rotation.T @ [tx, ty, tz])
+        directions.append(rotation[2])
+    centers = np.array(centers)
+    centered = centers - np.median(centers, axis=0)
+    radius = np.percentile(np.linalg.norm(centered, axis=1), 90)
+    if radius <= np.finfo(float).eps:
+        raise ValueError("Camera positions coincide. Move around the subject between shots.")
+    poses = np.column_stack((centered / radius, directions))
+    soft = set(soft_views)
+    weights = np.array([0.35 if name in soft else 1.0 for name in names])
+    limit = len(names) if not limit else min(len(names), max(3, int(limit)))
+    nearest = np.full(len(names), np.inf)
+    selected = []
+    index = int(weights.argmax())
+    for _ in range(limit):
+        selected.append(index)
+        nearest = np.minimum(nearest, np.linalg.norm(poses - poses[index], axis=1))
+        nearest[selected] = -1
+        index = int((nearest * weights).argmax())
+    return [names[index] for index in selected], names
+
+
+def openmvs_surface(work, workspace, full_mesh, fused, job):
+    env = "/content/scan3d_openmvs"
+    if not Path(env, "bin", "ReconstructMesh").exists():
+        rc, tail = stream([MM, "create", "-y", "-p", env, "-c", "tobiasrobotics", "-c", "conda-forge",
+                           "openmvs=2.4.0=cuda*"])
+        if rc:
+            raise RuntimeError("OpenMVS CUDA setup failed: " + tail[-1200:])
+
+    def run_tool(name, *args):
+        rc, tail = stream([MM, "run", "-p", env, name, "-w", work, *args])
+        if rc:
+            raise RuntimeError(f"{name} failed: " + tail[-1200:])
+
+    started = time.monotonic()
+    scene = f"{work}/scene.mvs"
+    dense = f"{work}/scene_dense.mvs"
+    run_tool("InterfaceCOLMAP", "-i", workspace, "-o", scene, "--image-folder", f"{workspace}/images")
+    run_tool("DensifyPointCloud", "-i", scene, "-o", dense, "--resolution-level", "0",
+             "--max-resolution", str(job["dense_max_image_size"] or job["undistort_max_image_size"]),
+             "--min-resolution", "320", "--number-views", str(job["source_views"]))
+    cloud = Path(dense).with_suffix(".ply")
+    if not cloud.is_file() or not count_ply_elements(cloud).get("vertex"):
+        raise RuntimeError("OpenMVS produced no fused points")
+    dense_seconds = round(time.monotonic() - started, 1)
+    print("@@RECON_STAGE@@mesh", flush=True)
+    started = time.monotonic()
+    run_tool("ReconstructMesh", "-i", dense, "-p", str(cloud), "-o", full_mesh)
+    shutil.copy2(cloud, fused)
+    return dense_seconds, round(time.monotonic() - started, 1)
+
+
+def recover_with_hloc(work, source, images, camera_model):
+    environment = Path("/content/scan3d_hloc")
+    python = str(environment / "bin" / "python")
+    if not Path(python).exists():
+        subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(environment)], check=True)
+    revision = "c13273bd0ecc2917a35910fd843712a1c6243193"
+    requirement = f"git+https://github.com/cvg/Hierarchical-Localization.git@{revision}#egg=hloc"
+    rc, tail = stream([python, "-m", "pip", "install", "-e", requirement, "pycolmap==4.2.1"])
+    if rc:
+        raise RuntimeError("Learned frontend installation failed: " + tail[-1200:])
+    destination = Path(work) / "learned_model"
+    rc, tail = stream([python, str(Path(source) / "learned_sparse.py"), images, str(destination), camera_model])
+    if rc:
+        raise RuntimeError("Learned camera recovery failed: " + tail[-1200:])
+    return destination
 
 
 def reconstruct_mesh(job):
@@ -292,11 +377,9 @@ def reconstruct_mesh(job):
         attempt["seconds_mapper"] = round(time.time() - started, 1)
         attempt["mapper_returncode"] = rc
         attempt["mapper_output_tail"] = tail[-1500:]
-        first_error = None
         candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
         candidates = [path for path in candidates if path.is_dir()]
         if (rc != 0 or not candidates) and mapper == "incremental":
-            first_error = tail[-1000:]
             shutil.rmtree(models, ignore_errors=True)
             os.makedirs(models)
             relaxed_cmd = mapper_cmd + ["--Mapper.init_min_num_inliers", "30",
@@ -309,20 +392,13 @@ def reconstruct_mesh(job):
             attempt["mapper_retry"] = {"init_min_num_inliers": 30, "init_min_tri_angle": 4}
             candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
             candidates = [path for path in candidates if path.is_dir()]
-        if not candidates:
-            attempt["failed"] = "sparse mapper produced no model. "
-            if first_error:
-                attempt["failed"] += "Default mapper output: " + first_error + "\n"
-            attempt["failed"] += tail[-1000:]
-            continue
-
         def group_counts(path):
             lines = [line for line in path.read_text().splitlines() if not line.startswith("#")]
             counts = {}
             for line in lines[::2]:
                 if not line.strip():
                     continue
-                group = line.split()[-1].split("/")[0]
+                group = line.split(maxsplit=9)[9].split("/")[0]
                 counts[group] = counts.get(group, 0) + 1
             return counts
 
@@ -345,21 +421,43 @@ def reconstruct_mesh(job):
             })
             if rc == 0 and os.path.isfile(images_txt):
                 model_counts[candidate] = group_counts(Path(images_txt))
-        if not model_counts:
-            attempt["conversion_attempts"] = conversion_attempts
-            attempt["failed"] = "could not convert sparse models to text"
-            continue
-        best_model = max(model_counts, key=lambda path: sum(model_counts[path].values()))
+        best_model = max(model_counts, key=lambda path: sum(model_counts[path].values()), default=None)
+        registered = model_counts.get(best_model, {})
+        count = sum(registered.values())
+        if job["learned_recovery"] and (count < 2 or count / job["image_count"] < job["min_registered_fraction"]):
+            started = time.time()
+            candidate = recover_with_hloc(work, source, images, job["camera_model"])
+            text_dir = Path(work) / f"model_txt_{candidate.name}"
+            text_dir.mkdir(exist_ok=True)
+            rc, tail = stream(colmap + ["model_converter", "--input_path", str(candidate),
+                                        "--output_path", str(text_dir), "--output_type", "TXT"])
+            if rc:
+                raise RuntimeError("Learned model conversion failed: " + tail[-1000:])
+            recovered = group_counts(text_dir / "images.txt")
+            if sum(recovered.values()) > count:
+                best_model, registered, count = candidate, recovered, sum(recovered.values())
+                matcher = "superpoint+lightglue"
+            attempt["seconds_recovery"] = round(time.time() - started, 1)
+        if count < 2 or count / job["image_count"] < job["min_registered_fraction"]:
+            raise RuntimeError(f"Only {count}/{job['image_count']} views registered together. "
+                               "Add overlapping views between disconnected angles.")
         best_txt = f"{work}/model_txt_{best_model.name}"
-        registered = model_counts[best_model]
-        if sum(registered.values()) < 2:
-            attempt["failed"] = f"only {sum(registered.values())} image(s) registered; at least two are needed"
-            continue
-
+        selected, all_names = dense_view_names(Path(best_txt) / "images.txt", job["soft_views"], job["view_limit"])
         print("@@RECON_STAGE@@undistort", flush=True)
         started = time.time()
+        if len(selected) < len(all_names):
+            omitted = Path(work) / "omit.txt"
+            omitted.write_text("\n".join(sorted(set(all_names) - set(selected))))
+            subset = Path(work) / "dense_model"
+            subset.mkdir(exist_ok=True)
+            rc, tail = stream(colmap + ["image_deleter", "--input_path", str(best_model),
+                                        "--output_path", str(subset), "--image_names_path", str(omitted)])
+            if rc:
+                raise RuntimeError("Dense view selection failed: " + tail[-1000:])
+        else:
+            subset = best_model
         rc, tail = stream(colmap + ["image_undistorter", "--image_path", images,
-                                     "--input_path", str(best_model), "--output_path", undistorted,
+                                     "--input_path", str(subset), "--output_path", undistorted,
                                      "--output_type", "COLMAP", "--max_image_size",
                                      str(job["undistort_max_image_size"])])
         seconds_undistort = round(time.time() - started, 1)
@@ -368,59 +466,75 @@ def reconstruct_mesh(job):
             continue
 
         print("@@RECON_STAGE@@dense", flush=True)
-        started = time.time()
-        pm_cmd = colmap + ["patch_match_stereo", "--workspace_path", undistorted,
-                           "--workspace_format", "COLMAP", "--PatchMatchStereo.geom_consistency",
-                           "true" if job["geom_consistency"] else "false"]
-        if job.get("dense_window_step") and int(job["dense_window_step"]) > 1:
-            pm_cmd += ["--PatchMatchStereo.window_step", str(job["dense_window_step"])]
-        if job.get("dense_max_image_size") and int(job["dense_max_image_size"]) > 0:
-            pm_cmd += ["--PatchMatchStereo.max_image_size", str(job["dense_max_image_size"])]
-
-        rc, tail = stream(pm_cmd)
-        seconds_patch_match = round(time.time() - started, 1)
-        if rc != 0:
-            attempt["failed"] = "patch match stereo: " + tail[-1000:]
-            continue
-
-        started = time.time()
-        fused = f"{work}/fused.ply"
-        rc, tail = stream(colmap + ["stereo_fusion", "--workspace_path", undistorted,
-                                     "--workspace_format", "COLMAP", "--input_type", "geometric",
-                                     "--output_path", fused])
-        seconds_fusion = round(time.time() - started, 1)
-        if rc != 0 or not os.path.isfile(fused):
-            attempt["failed"] = "stereo fusion: " + tail[-1000:]
-            continue
-
-        fused_counts = count_ply_elements(fused)
-        fused_points = fused_counts.get("vertex", 0)
-
-        # Meshing and Texturing stage on Colab (utilizing Colab high RAM & GPU)
-        print("@@RECON_STAGE@@mesh", flush=True)
         mesh_out = f"{work}/mesh"
         shutil.rmtree(mesh_out, ignore_errors=True)
-        os.makedirs(mesh_out, exist_ok=True)
+        os.makedirs(mesh_out)
+        mesh_cfg = job["mesh"]
+        full_mesh = f"{mesh_out}/meshed-full.ply"
+        fused = f"{work}/fused.ply"
+        if job["dense_backend"] == "openmvs":
+            seconds_patch_match, seconds_poisson = openmvs_surface(work, undistorted, full_mesh, fused, job)
+            seconds_fusion = 0  # DensifyPointCloud includes fusion.
+            fused_points = count_ply_elements(fused).get("vertex", 0)
+        elif job["dense_backend"] == "colmap":
+            started = time.time()
+            patch_cfg = Path(undistorted) / "stereo" / "patch-match.cfg"
+            patch_cfg.write_text(re.sub(r"__auto__,\s*\d+", f"__auto__, {job['source_views']}", patch_cfg.read_text()))
+            pm_cmd = colmap + ["patch_match_stereo", "--workspace_path", undistorted,
+                               "--workspace_format", "COLMAP", "--PatchMatchStereo.geom_consistency",
+                               "true" if job["geom_consistency"] else "false"]
+            if job.get("dense_window_step") and int(job["dense_window_step"]) > 1:
+                pm_cmd += ["--PatchMatchStereo.window_step", str(job["dense_window_step"])]
+            if job.get("dense_max_image_size") and int(job["dense_max_image_size"]) > 0:
+                pm_cmd += ["--PatchMatchStereo.max_image_size", str(job["dense_max_image_size"])]
 
-        mesh_cfg = job.get("mesh", {})
-        poisson_depth = str(mesh_cfg.get("poisson_depth", 13))
-        poisson_trim = str(mesh_cfg.get("poisson_trim", 1))
+            if len(selected) < 4:
+                pm_cmd += ["--PatchMatchStereo.filter_min_num_consistent", str(len(selected) - 1)]
+            rc, tail = stream(pm_cmd)
+            seconds_patch_match = round(time.time() - started, 1)
+            if rc != 0:
+                attempt["failed"] = "patch match stereo: " + tail[-1000:]
+                continue
 
-        full_mesh = f"{mesh_out}/meshed-poisson.ply"
-        poisson_cmd = colmap + ["poisson_mesher", "--input_path", fused, "--output_path", full_mesh,
-                               "--PoissonMeshing.depth", poisson_depth,
-                               "--PoissonMeshing.trim", poisson_trim]
-        started = time.time()
-        rc, tail = stream(poisson_cmd)
-        seconds_poisson = round(time.time() - started, 1)
-        if rc != 0 or not os.path.isfile(full_mesh):
-            attempt["failed"] = "poisson mesher: " + tail[-1000:]
-            continue
+            started = time.time()
+            fused = f"{work}/fused.ply"
+            rc, tail = stream(colmap + ["stereo_fusion", "--workspace_path", undistorted,
+                                         "--workspace_format", "COLMAP", "--input_type", "geometric" if job["geom_consistency"] else "photometric",
+                                         "--StereoFusion.min_num_pixels", str(min(5, len(selected))),
+                                         "--output_path", fused])
+            seconds_fusion = round(time.time() - started, 1)
+            if rc != 0 or not os.path.isfile(fused):
+                attempt["failed"] = "stereo fusion: " + tail[-1000:]
+                continue
 
+            fused_counts = count_ply_elements(fused)
+            fused_points = fused_counts.get("vertex", 0)
+
+            if not fused_points:
+                raise RuntimeError("Dense fusion produced no points. Capture more overlapping, textured views.")
+
+            print("@@RECON_STAGE@@mesh", flush=True)
+            poisson_depth = str(mesh_cfg.get("poisson_depth", 13))
+            poisson_trim = str(mesh_cfg.get("poisson_trim", 1))
+
+            poisson_cmd = colmap + ["poisson_mesher", "--input_path", fused, "--output_path", full_mesh,
+                                   "--PoissonMeshing.depth", poisson_depth,
+                                   "--PoissonMeshing.trim", poisson_trim]
+            started = time.time()
+            rc, tail = stream(poisson_cmd)
+            seconds_poisson = round(time.time() - started, 1)
+            if rc != 0 or not os.path.isfile(full_mesh):
+                attempt["failed"] = "poisson mesher: " + tail[-1000:]
+                continue
+
+        else:
+            raise ValueError(f"Unknown dense backend: {job['dense_backend']}")
         c_full = count_ply_elements(full_mesh)
         full_vertices = c_full.get("vertex", 0)
         full_faces = c_full.get("face", 0)
 
+        if not full_faces:
+            raise RuntimeError("Surface reconstruction produced no faces")
         mesh_for_texture = full_mesh
         ratio = mesh_cfg.get("target_face_ratio")
         seconds_simplify = 0.0
@@ -460,20 +574,25 @@ def reconstruct_mesh(job):
         os.makedirs(ar_out, exist_ok=True)
         ar_cfg = job.get("ar", {})
         target_faces = ar_cfg.get("target_faces", 100000)
-        ar_ratio = min(1.0, float(target_faces) / max(1, full_faces))
-        ar_mesh = f"{ar_out}/mesh_ar.ply"
-        started = time.time()
-        rc, tail = stream(colmap + ["mesh_simplifier", "--input_path", full_mesh, "--output_path", ar_mesh,
-                                    "--MeshSimplification.target_face_ratio", str(ar_ratio)])
-        seconds_ar_simplify = round(time.time() - started, 1)
+        ar_reuses_mesh = bool(mesh_cfg.get("texture", True) and mesh_faces <= target_faces)
+        seconds_ar_simplify = seconds_ar_texture = 0.0
+        if not ar_reuses_mesh:
+            ar_ratio = min(1.0, float(target_faces) / max(1, full_faces))
+            ar_mesh = f"{ar_out}/mesh_ar.ply"
+            started = time.time()
+            rc, tail = stream(colmap + ["mesh_simplifier", "--input_path", full_mesh, "--output_path", ar_mesh,
+                                        "--MeshSimplification.target_face_ratio", str(ar_ratio)])
+            seconds_ar_simplify = round(time.time() - started, 1)
 
-        ar_textured = f"{ar_out}/textured"
-        started = time.time()
-        rc, tail = stream(colmap + ["mesh_texturer",
-                                    "--workspace_path", undistorted,
-                                    "--input_path", ar_mesh if os.path.isfile(ar_mesh) else mesh_for_texture,
-                                    "--output_path", ar_textured])
-        seconds_ar_texture = round(time.time() - started, 1)
+            ar_textured = f"{ar_out}/textured"
+            started = time.time()
+            rc, tail = stream(colmap + ["mesh_texturer",
+                                        "--workspace_path", undistorted,
+                                        "--input_path", ar_mesh if os.path.isfile(ar_mesh) else mesh_for_texture,
+                                        "--output_path", ar_textured])
+            if rc or not os.path.isfile(f"{ar_textured}/mesh.ply"):
+                raise RuntimeError("AR texturing failed: " + tail[-1000:])
+            seconds_ar_texture = round(time.time() - started, 1)
 
         result_dir = f"{work}/result"
         shutil.rmtree(result_dir, ignore_errors=True)
@@ -505,6 +624,8 @@ def reconstruct_mesh(job):
             "matcher": matcher,
             "best_model": best_model.name,
             "registered_by_group": registered,
+            "dense_views": selected,
+            "seconds_recovery": attempt.get("seconds_recovery", 0),
             "seconds_features": attempt["seconds_features"],
             "seconds_matching": attempt["seconds_matching"],
             "seconds_mapper": attempt["seconds_mapper"],
@@ -519,6 +640,7 @@ def reconstruct_mesh(job):
             "full_faces": full_faces,
             "mesh_vertices": mesh_vertices,
             "mesh_faces": mesh_faces,
+            "ar_reuses_mesh": ar_reuses_mesh,
             "seconds_ar_simplify": seconds_ar_simplify,
             "seconds_ar_texture": seconds_ar_texture,
             "result_parts": result_parts,

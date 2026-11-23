@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import zipfile
 from pathlib import Path
 
 from ..pipeline import Context, Stage
@@ -25,7 +26,7 @@ class ExportStage(Stage):
         if exports.exists():
             shutil.rmtree(exports)
         for p in mesh_dir.rglob("*"):
-            if p.is_file() and p.name != "meshed-poisson.ply":   # full-resolution mesh stays in 07_mesh
+            if p.is_file() and p.name not in {"meshed-full.ply", "meshed-poisson.ply"}:   # full-resolution mesh stays in 07_mesh
                 dest = exports / p.relative_to(mesh_dir)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(p, dest)
@@ -35,7 +36,8 @@ class ExportStage(Stage):
         tex_png = exports / "textured" / "texture.png"
         if tex_ply.exists() and tex_png.exists():
             conversion = convert_textured_ply(tex_ply, tex_png.name, exports / "textured" / "model.obj",
-                                              flip_v=ctx.cfg["export"]["flip_v"])
+                                              flip_v=ctx.cfg["export"]["flip_v"],
+                                              max_edge_factor=ctx.cfg["mesh"].get("max_edge_factor"))
 
         obj = exports / "textured" / "model.obj"
         if obj.exists():
@@ -55,24 +57,25 @@ class ExportStage(Stage):
                 except Exception:
                     pass
 
+        if obj.exists():
+            with zipfile.ZipFile(out / "model-obj.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
+                for path in (obj, obj.with_suffix(".mtl"), tex_png):
+                    bundle.write(path, path.name)
         simplified = exports / "meshed-simplified.ply"
         src = obj if obj.exists() else simplified if simplified.exists() else mesh_dir / "meshed-poisson.ply"
 
-        script = Path(__file__).resolve().parents[1] / "validation" / "blender_check.py"
-        try:
-            run([ctx.cfg["blender"]["binary"], "-b", "--factory-startup", "--python", script, "--",
-                 "--input", src.resolve(), "--outdir", out.resolve()],
-                log_file=ctx.run.root / "logs" / "export_blender.log")
-        except Exception:
-            report_file = out / "blender_report.json"
-            if not report_file.exists():
-                report_file.write_text(json.dumps({
-                    "imported": True,
-                    "objects": 1,
-                    "renders": [],
-                }, indent=2))
+        if not src.exists():
+            src = mesh_dir / "meshed-full.ply"
 
+        script = Path(__file__).resolve().parents[1] / "validation" / "blender_check.py"
+        report_path = out / "blender_report.json"
+        report_path.unlink(missing_ok=True)
+        run([ctx.cfg["blender"]["binary"], "-b", "--factory-startup", "--python-exit-code", "1",
+             "--python", script, "--", "--input", src.resolve(), "--outdir", out.resolve()],
+            log_file=ctx.run.root / "logs" / "export_blender.log")
         report = json.loads((out / "blender_report.json").read_text())
+        if not report.get("faces") or not report.get("glb_bytes"):
+            raise RuntimeError("Blender did not export a nonempty mesh")
         report["source_mesh"] = str(src.relative_to(ctx.run.root))
         report["obj_conversion"] = conversion
         return report

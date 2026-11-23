@@ -29,7 +29,7 @@ Stages are cached; rerun the same command with the same `--run-id` to resume.
 The web app, API, and reconstruction worker setup is documented in [webxr/backend/README.md](webxr/backend/README.md). Docker Compose starts the local prototype at `http://localhost:5173`; Railway uses separate web, API, and worker services connected to the same pipeline.
 
 ## Notes
-See `docs/limitations.md`. A 125-photo dense run used about 80 minutes of T4 time.
+See the [reconstruction plan and benchmark procedure](docs/reconstruction-plan.md) and [known limitations](docs/limitations.md). A 125-photo dense run used about 80 minutes of T4 time.
 
 ## Tracks
 - Mesh track (editable, AR): `scan3d run --config configs/<name>.yaml` (ingest and validate locally; feature extraction through dense reconstruction in one Colab job; mesh, export, and AR export locally)
