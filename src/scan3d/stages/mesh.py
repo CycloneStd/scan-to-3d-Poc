@@ -14,7 +14,8 @@ class MeshStage(Stage):
     requires = ("dense",)
 
     def config_slice(self, cfg):
-        return {"mesh": cfg["mesh"], "colmap": cm.version(cfg["colmap"]["binary"])}
+        mesh = {k: v for k, v in cfg["mesh"].items() if k != "poisson_args" or v}
+        return {"mesh": mesh, "colmap": cm.version(cfg["colmap"]["binary"])}
 
     def run(self, ctx: Context) -> dict:
         binary = ctx.cfg["colmap"]["binary"]
@@ -25,7 +26,8 @@ class MeshStage(Stage):
 
         full = out / "meshed-poisson.ply"
         r1 = run([binary, "poisson_mesher", "--input_path", ctx.run.stage_dir("06_dense") / "fused.ply",
-                  "--output_path", full], log_file=logf)
+                  "--output_path", full] + [str(a) for a in ctx.cfg["mesh"].get("poisson_args") or []],
+                 log_file=logf)
         c = ply_counts(full)
         metrics = {"poisson_seconds": r1.seconds, "full_vertices": c.get("vertex"), "full_faces": c.get("face")}
 

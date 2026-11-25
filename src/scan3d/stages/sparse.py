@@ -38,12 +38,19 @@ def registered_per_group(images_txt: Path) -> dict[str, int]:
     return counts
 
 
+def gate_status(by_group: dict, min_fraction: float) -> dict:
+    fractions = {g: v["registered"] / v["input"] for g, v in by_group.items() if v["input"]}
+    worst = min(fractions.values()) if fractions else 0.0
+    return {"min_fraction": min_fraction, "worst_group_fraction": round(worst, 3),
+            "passed": worst >= min_fraction, "per_group": {g: round(f, 3) for g, f in fractions.items()}}
+
+
 class SparseStage(Stage):
     name = "sparse"
     requires = ("features",)
 
     def config_slice(self, cfg):
-        return {"sparse": cfg["sparse"], "colmap": cm.version(cfg["colmap"]["binary"])}
+        return {"sparse": cfg["sparse"], "gate": cfg["gate"], "colmap": cm.version(cfg["colmap"]["binary"])}
 
     def run(self, ctx: Context) -> dict:
         cfg = ctx.cfg
@@ -96,5 +103,15 @@ class SparseStage(Stage):
             "mapper_seconds": res.seconds,
             "peak_children_rss_mb": res.peak_children_rss_mb,
         }
+        gate_cfg = ctx.cfg.get("gate", {})
+        metrics["gate"] = gate_status(metrics["registered_by_group"], float(gate_cfg.get("min_registered_fraction", 0.9)))
         (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        if not metrics["gate"]["passed"] and gate_cfg.get("enforce", True):
+            reg = {g: f"{v['registered']} of {v['input']}" for g, v in metrics["registered_by_group"].items()}
+            raise RuntimeError(
+                f"Capture quality check failed: only {reg} images could be placed in 3D "
+                f"({metrics['gate']['worst_group_fraction']:.0%}, need {metrics['gate']['min_fraction']:.0%}). "
+                "Common causes: too few photos, too little overlap (aim for about 70%), blurry or shiny subject, "
+                "photos taken in big jumps, or files in a scrambled order. Retake the capture. "
+                "To process it anyway: --set gate.enforce=false")
         return metrics
