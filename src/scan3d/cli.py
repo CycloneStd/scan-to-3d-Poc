@@ -20,9 +20,17 @@ RUNS = Path("runs")
 DELIVERABLES = Path("deliverables")
 
 
+def _run_path(run_id: str) -> Path:
+    root = RUNS.resolve()
+    path = (root / run_id).resolve()
+    if path.parent != root or Path(run_id).name != run_id or run_id in {".", ".."}:
+        raise ValueError("Run ID must name a directory directly under runs")
+    return RUNS / run_id
+
+
 def _new_run(cfg: dict, run_id: str | None, prefix: str | None = None) -> RunDir:
     run_id = run_id or f"{prefix or cfg['project']['name']}-{time.strftime('%Y%m%d-%H%M%S')}"
-    run = RunDir(RUNS / run_id)
+    run = RunDir(_run_path(run_id))
     setup_logging(run.root / "logs" / "pipeline.log")
     print(f"Run directory: {run.root}")
     return run
@@ -50,7 +58,7 @@ def cmd_run(args):
 
 
 def cmd_status(args):
-    manifest = Manifest(RUNS / args.run_id / "manifest.json")
+    manifest = Manifest(_run_path(args.run_id) / "manifest.json")
     for name, rec in manifest.data["stages"].items():
         print(f"{name:<10} {rec.get('status'):<8} {rec.get('seconds', '-')}s  {rec.get('metrics', '')}")
 
@@ -78,7 +86,7 @@ def cmd_remote_probe(args):
     job = {"action": args.action}
     with ex.open_session(keep=args.keep):
         if args.action == "gsplat_check" and args.from_run:
-            tar, digest = _mini_bundle(RUNS / args.from_run, run.root)
+            tar, digest = _mini_bundle(_run_path(args.from_run), run.root)
             n = ex.upload_chunked(tar, "ws.part", int(r.get("chunk_mb", 4)))
             job.update(workspace_tar="/content/workspace.tar.gz", parts_prefix="ws.part",
                        num_parts=n, sha256=digest)
@@ -87,7 +95,7 @@ def cmd_remote_probe(args):
 
 
 def cmd_report(args):
-    root = RUNS / args.run_id
+    root = _run_path(args.run_id)
     manifest = Manifest(root / "manifest.json")
     lines = [f"# Reconstruction report: {args.run_id}", "",
              "| Stage | Status | Seconds | Metrics |", "|---|---|---|---|"]
@@ -106,7 +114,7 @@ def cmd_report(args):
 
 
 def cmd_deliver(args):
-    run_dir = RUNS / args.run_id
+    run_dir = _run_path(args.run_id)
     out = Path(args.out) if args.out else DELIVERABLES / (args.name or args.run_id)
     cmd_report(argparse.Namespace(run_id=args.run_id))
     manifest = deliver(run_dir, out)

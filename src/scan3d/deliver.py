@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import time
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from .ar import estimate_up, orient_obj
@@ -42,6 +43,34 @@ def deliver(run_dir: Path, out: Path) -> dict:
     if out == run_dir or out in run_dir.parents or run_dir in out.parents:
         raise ValueError("Delivery output must not overlap the source run directory")
 
+    if not (run_dir / "manifest.json").is_file():
+        raise ValueError("Source run has no manifest")
+    if out.exists() and any(out.iterdir()):
+        prior_manifest = out / "manifest.json"
+        prior = json.loads(prior_manifest.read_text()) if prior_manifest.is_file() else {}
+        if "source_run" not in prior or not isinstance(prior.get("files"), list):
+            raise ValueError("Output already contains files outside a scan delivery")
+        known = {"manifest.json", *(entry["file"] for entry in prior["files"])}
+        if any(p.relative_to(out).as_posix() not in known for p in out.rglob("*") if p.is_file() or p.is_symlink()):
+            raise ValueError("Output contains files outside the previous delivery")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".scan3d-delivery-", dir=out.parent) as temporary:
+        staged = Path(temporary) / "new"
+        previous = Path(temporary) / "previous"
+        result = _build_delivery(run_dir, staged, out.name)
+        if out.exists():
+            out.rename(previous)
+        try:
+            staged.rename(out)
+        except OSError:
+            if previous.exists():
+                previous.rename(out)
+            raise
+    return result
+
+
+def _build_delivery(run_dir: Path, out: Path, name: str) -> dict:
     stages = Manifest(run_dir / "manifest.json").data["stages"]
     metrics = lambda name: (stages.get(name) or {}).get("metrics") or {}
 
@@ -50,9 +79,7 @@ def deliver(run_dir: Path, out: Path) -> dict:
         ar_report = json.loads((run_dir / "11_ar" / "ar_report.json").read_text())
     scale = ar_report.get("scale_factor")
 
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
+    out.mkdir()
     missing: list[str] = []
 
     wanted = {
@@ -81,15 +108,18 @@ def deliver(run_dir: Path, out: Path) -> dict:
         (out / "mesh").mkdir()
         for name in ("model.obj", "model.mtl", "texture.png"):
             shutil.copy2(mesh_src / name, out / "mesh" / name)
-        reconstruction_metrics = metrics("reconstruction")
         sparse_metrics = metrics("sparse")
         mapper = sparse_metrics.get("mapper", "incremental")
         images_txt = run_dir / "06_reconstruction" / "best_model_txt" / "images.txt"
         if not images_txt.exists():
             images_txt = run_dir / f"04_sparse_{mapper}" / "best_model_txt" / "images.txt"
-        if images_txt.exists():
-            up, _, _ = estimate_up(images_txt)
-            info = orient_obj(out / "mesh" / "model.obj", up, scale)
+        orientation = metrics("export").get("obj_orientation")
+        if orientation or images_txt.exists():
+            if orientation and not scale:
+                info = orientation
+            else:
+                up = [0, 1, 0] if orientation else estimate_up(images_txt)[0]
+                info = orient_obj(out / "mesh" / "model.obj", up, scale)
             mesh_note = (f"upright, size x/y/z = {info['size_x_y_z']} "
                          f"({'scaled' if scale else 'UNSCALED model units'})")
         else:
@@ -103,9 +133,10 @@ def deliver(run_dir: Path, out: Path) -> dict:
     registered_by_group = sparse_metrics.get("registered_by_group") or reconstruction_metrics.get("registered_by_group")
     registered_images = best.get("registered_images")
     if registered_images is None and registered_by_group:
-        registered_images = sum(registered_by_group.values())
+        registered_images = sum(item["registered"] if isinstance(item, dict) else item
+                                for item in registered_by_group.values())
     manifest = {
-        "name": out.name,
+        "name": name,
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
         "source_run": run_dir.name,
         "quality": {
@@ -137,7 +168,7 @@ def deliver(run_dir: Path, out: Path) -> dict:
                 relative, "Render of the full mesh (axis-aligned view)" if relative.startswith("report/view_") else "")
             rows.append(f"| `{relative}` | {path.stat().st_size / 1e6:.1f} MB | {description} |")
     (out / "README.md").write_text(
-        f"# {out.name}\n\nBuilt from run `{run_dir.name}` on {manifest['created']}.\n\n"
+        f"# {name}\n\nBuilt from run `{run_dir.name}` on {manifest['created']}.\n\n"
         "## Files\n\n| File | Size | What it is |\n|---|---|---|\n" + "\n".join(rows) + "\n\n"
         "## How to open\n\n"
         "- **Mesh (OBJ):** Blender, File > Import > Wavefront (.obj). Keep the .mtl and texture next to it.\n"

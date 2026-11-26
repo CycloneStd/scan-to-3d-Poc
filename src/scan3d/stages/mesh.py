@@ -53,9 +53,10 @@ class MeshStage(Stage):
 
         full = out / "meshed-poisson.ply"
         poisson_depth = str(ctx.cfg["mesh"].get("poisson_depth", 11))
+        poisson_trim = str(ctx.cfg["mesh"].get("poisson_trim", 7))
         poisson_cmd = [binary, "poisson_mesher", "--input_path", reconstruction_dir / "fused.ply",
                        "--output_path", full, "--PoissonMeshing.depth", poisson_depth,
-                       "--PoissonMeshing.trim", "1"]
+                       "--PoissonMeshing.trim", poisson_trim]
         r1 = run(poisson_cmd, log_file=logf)
         c = ply_counts(full)
         metrics = {"poisson_seconds": r1.seconds, "full_vertices": c.get("vertex"), "full_faces": c.get("face")}

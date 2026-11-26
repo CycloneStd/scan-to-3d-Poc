@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
@@ -18,11 +19,11 @@ REQUIRED = {
 
 DEFAULTS = {
     "undistort": {"max_image_size": 2400},
-    "dense": {"backend": "colmap", "geom_consistency": True, "min_registered_fraction": 0.7, "view_limit": 48, "source_views": 6, "window_step": 2, "max_image_size": 1500, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
-    "mesh": {"texture": True, "target_face_ratio": 0.05, "poisson_depth": 13, "poisson_trim": 1},
+    "dense": {"backend": "colmap", "geom_consistency": True, "min_registered_fraction": 0.2, "view_limit": 40, "source_views": 6, "window_step": 2, "max_image_size": 1024, "colmap_specs": ["colmap=4.2.1=cuda_129*"]},
+    "mesh": {"texture": True, "target_face_ratio": 0.15, "poisson_depth": 11, "poisson_trim": 7, "max_edge_factor": 6.0, "min_component_faces": 150},
     "blender": {"binary": "blender"},
     "export": {"flip_v": False},
-    "video": {"select": "sharpest", "oversample": 3},
+    "video": {"select": "motion_sharpest", "oversample": 3},
     "features": {"learned_recovery": True, "matcher": "auto", "sequential_overlap": 15, "max_image_size": 2000, "num_threads": 1},
     "remote": {"high_mem": False, "chunk_mb": 4, "io_timeout": 600, "max_hours_total": 6, "keep_on_failure": True,
                "upload_workers": 4},
@@ -32,7 +33,7 @@ DEFAULTS = {
               "download_ply": False, "compress": ["spz", "compressed.ply"],
               "clean": {"min_opacity": 0.3, "max_scale_frac": 0.05, "crop_factor": 1.5}},
               
-    "ar": {"target_faces": 100000, "texture_px": 2048, "jpeg_quality": 88, "scale_factor": None},
+    "ar": {"target_faces": 120000, "texture_px": 4096, "jpeg_quality": 90, "scale_factor": None},
 }
 
 
@@ -56,7 +57,8 @@ def load_config(path: str | Path) -> dict:
     for section, values in DEFAULTS.items():
         node = cfg.setdefault(section, {})
         for k, v in values.items():
-            node.setdefault(k, v)
+            if k not in node:
+                node[k] = deepcopy(v)
     cfg["colmap"]["binary"] = _expand(cfg["colmap"]["binary"], "colmap.binary")
     cfg["blender"]["binary"] = _expand(cfg["blender"]["binary"], "blender.binary")
     return cfg

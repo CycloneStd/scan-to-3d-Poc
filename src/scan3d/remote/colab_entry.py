@@ -94,9 +94,7 @@ def sha256(path):
 
 
 def assemble(job):
-    parts = sorted(f for f in os.listdir("/content") if f.startswith(job["parts_prefix"]))
-    if len(parts) != job["num_parts"]:
-        raise RuntimeError(f"Expected {job['num_parts']} upload parts, found {len(parts)}")
+    parts = (f"{job['parts_prefix']}{i:03d}" for i in range(job["num_parts"]))
     with open(job["workspace_tar"], "wb") as out:
         for p in parts:
             with open(f"/content/{p}", "rb") as fh:
@@ -142,7 +140,7 @@ def dense(job):
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     with tarfile.open(job["workspace_tar"]) as tar:
-        tar.extractall(work)
+        tar.extractall(work, filter="data")
     ws = f"{work}/workspace"
 
     if not ensure_micromamba():
@@ -219,10 +217,12 @@ def dense_view_names(images_txt, soft_views, limit):
     radius = np.percentile(np.linalg.norm(centered, axis=1), 90)
     if radius <= np.finfo(float).eps:
         raise ValueError("Camera positions coincide. Move around the subject between shots.")
+    if not limit or len(names) <= max(3, int(limit)):
+        return names.copy(), names
     poses = np.column_stack((centered / radius, directions))
     soft = set(soft_views)
     weights = np.array([0.35 if name in soft else 1.0 for name in names])
-    limit = len(names) if not limit else min(len(names), max(3, int(limit)))
+    limit = max(3, int(limit))
     nearest = np.full(len(names), np.inf)
     selected = []
     index = int(weights.argmax())
@@ -271,10 +271,30 @@ def recover_with_hloc(work, source, images, camera_model):
     if not Path(python).exists():
         subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(environment)], check=True)
     revision = "c13273bd0ecc2917a35910fd843712a1c6243193"
-    requirement = f"git+https://github.com/cvg/Hierarchical-Localization.git@{revision}#egg=hloc"
-    rc, tail = stream([python, "-m", "pip", "install", "-e", requirement, "pycolmap==4.2.1"])
+    lightglue_revision = "5a650c444718caffc2669dc0094cde908f42dd73"
+    hloc_source = Path(work) / "Hierarchical-Localization"
+    rc, tail = stream([
+        "git", "clone", "--recursive", "https://github.com/cvg/Hierarchical-Localization.git",
+        str(hloc_source),
+    ])
     if rc:
-        raise RuntimeError("Learned frontend installation failed: " + tail[-1200:])
+        raise RuntimeError("Could not fetch the learned feature frontend: " + tail[-1200:])
+    rc, tail = stream(["git", "-C", str(hloc_source), "checkout", revision])
+    if rc:
+        raise RuntimeError("Could not select the pinned learned frontend: " + tail[-1200:])
+    rc, tail = stream(["git", "-C", str(hloc_source), "submodule", "update", "--init", "--recursive"])
+    if rc:
+        raise RuntimeError("Could not fetch learned frontend submodules: " + tail[-1200:])
+    requirements = [
+        [python, "-m", "pip", "install", "--no-deps", "-e", str(hloc_source)],
+        [python, "-m", "pip", "install", "--no-deps", "pycolmap==4.2.1"],
+        [python, "-m", "pip", "install", "--no-deps",
+         f"git+https://github.com/cvg/LightGlue.git@{lightglue_revision}"],
+    ]
+    for command in requirements:
+        rc, tail = stream(command)
+        if rc:
+            raise RuntimeError("Could not install the learned feature frontend: " + tail[-1200:])
     destination = Path(work) / "learned_model"
     rc, tail = stream([python, str(Path(source) / "learned_sparse.py"), images, str(destination), camera_model])
     if rc:
@@ -289,7 +309,7 @@ def reconstruct_mesh(job):
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     with tarfile.open(job["workspace_tar"]) as tar:
-        tar.extractall(work)
+        tar.extractall(work, filter="data")
     source = f"{work}/input"
     images = f"{source}/images"
     image_list = f"{source}/image_list.txt"
@@ -308,10 +328,13 @@ def reconstruct_mesh(job):
         env = f"/content/reconstruction_colmap_{index}"
         attempt = {"spec": spec}
         attempts.append(attempt)
-        rc, tail = stream([MM, "create", "-y", "-p", env, "-c", "conda-forge", spec])
-        if rc != 0:
-            attempt["failed"] = "install: " + tail[-600:]
-            continue
+        if not Path(f"{env}/bin/colmap").exists():
+            rc, tail = stream([MM, "create", "-y", "-p", env, "-c", "conda-forge", spec])
+            if rc != 0:
+                attempt["failed"] = "install: " + tail[-600:]
+                continue
+        else:
+            rc, tail = 0, "reused cached environment"
 
         colmap = [MM, "run", "-p", env, "colmap"]
         banner = sh(" ".join(colmap) + " -h 2>&1 | head -3")
@@ -334,9 +357,10 @@ def reconstruct_mesh(job):
 
         print("@@RECON_STAGE@@features", flush=True)
         started = time.time()
+        single_cam_flag = "1" if job.get("single_camera", False) else "0"
         rc, tail = stream(colmap + ["feature_extractor", "--database_path", db,
                                      "--image_path", images, "--image_list_path", image_list,
-                                     "--ImageReader.single_camera_per_folder", "1",
+                                     "--ImageReader.single_camera_per_folder", single_cam_flag,
                                      "--ImageReader.camera_model", job["camera_model"],
                                      "--FeatureExtraction.use_gpu", "1",
                                      "--FeatureExtraction.max_image_size", str(job["max_image_size"]),
@@ -382,16 +406,31 @@ def reconstruct_mesh(job):
         if (rc != 0 or not candidates) and mapper == "incremental":
             shutil.rmtree(models, ignore_errors=True)
             os.makedirs(models)
-            relaxed_cmd = mapper_cmd + ["--Mapper.init_min_num_inliers", "30",
-                                        "--Mapper.init_min_tri_angle", "4"]
+            relaxed_cmd = mapper_cmd + ["--Mapper.init_min_num_inliers", "25",
+                                        "--Mapper.init_min_tri_angle", "3",
+                                        "--Mapper.abs_pose_min_num_inliers", "15",
+                                        "--Mapper.filter_max_reproj_error", "6"]
             started = time.time()
             rc, tail = stream(relaxed_cmd)
             attempt["seconds_mapper"] += round(time.time() - started, 1)
             attempt["mapper_retry_returncode"] = rc
             attempt["mapper_retry_output_tail"] = tail[-1500:]
-            attempt["mapper_retry"] = {"init_min_num_inliers": 30, "init_min_tri_angle": 4}
+            attempt["mapper_retry"] = {"init_min_num_inliers": 25, "init_min_tri_angle": 3}
             candidates = sorted(Path(models).iterdir()) if os.path.isdir(models) else []
             candidates = [path for path in candidates if path.is_dir()]
+
+        # Try merging sub-models if reconstruction produced multiple disconnected clusters
+        if len(candidates) > 1:
+            try:
+                merged_dir = Path(work) / "model_merged"
+                merged_dir.mkdir(exist_ok=True)
+                rc_merge, _ = stream(colmap + ["model_merger", "--input_path1", str(candidates[0]),
+                                              "--input_path2", str(candidates[1]),
+                                              "--output_path", str(merged_dir)])
+                if rc_merge == 0 and any((merged_dir / fname).exists() for fname in ("images.bin", "images.txt")):
+                    candidates.append(merged_dir)
+            except Exception:
+                pass
         def group_counts(path):
             lines = [line for line in path.read_text().splitlines() if not line.startswith("#")]
             counts = {}
@@ -424,23 +463,29 @@ def reconstruct_mesh(job):
         best_model = max(model_counts, key=lambda path: sum(model_counts[path].values()), default=None)
         registered = model_counts.get(best_model, {})
         count = sum(registered.values())
-        if job["learned_recovery"] and (count < 2 or count / job["image_count"] < job["min_registered_fraction"]):
+        if job["learned_recovery"] and (count < job["image_count"]):
             started = time.time()
-            candidate = recover_with_hloc(work, source, images, job["camera_model"])
-            text_dir = Path(work) / f"model_txt_{candidate.name}"
-            text_dir.mkdir(exist_ok=True)
-            rc, tail = stream(colmap + ["model_converter", "--input_path", str(candidate),
-                                        "--output_path", str(text_dir), "--output_type", "TXT"])
-            if rc:
-                raise RuntimeError("Learned model conversion failed: " + tail[-1000:])
-            recovered = group_counts(text_dir / "images.txt")
-            if sum(recovered.values()) > count:
-                best_model, registered, count = candidate, recovered, sum(recovered.values())
-                matcher = "superpoint+lightglue"
+            try:
+                candidate = recover_with_hloc(work, source, images, job["camera_model"])
+                text_dir = Path(work) / f"model_txt_{candidate.name}"
+                text_dir.mkdir(exist_ok=True)
+                rc, tail = stream(colmap + ["model_converter", "--input_path", str(candidate),
+                                            "--output_path", str(text_dir), "--output_type", "TXT"])
+                if rc == 0 and os.path.isfile(f"{text_dir}/images.txt"):
+                    recovered = group_counts(Path(f"{text_dir}/images.txt"))
+                    if sum(recovered.values()) > count:
+                        best_model, registered, count = candidate, recovered, sum(recovered.values())
+                        matcher = "superpoint+lightglue"
+            except Exception as exc:
+                print(f"Learned recovery attempt warning: {exc}", flush=True)
             attempt["seconds_recovery"] = round(time.time() - started, 1)
-        if count < 2 or count / job["image_count"] < job["min_registered_fraction"]:
-            raise RuntimeError(f"Only {count}/{job['image_count']} views registered together. "
-                               "Add overlapping views between disconnected angles.")
+        min_fraction = job.get("min_registered_fraction", 0.2)
+        if count < 2:
+            raise RuntimeError(f"Reconstruction failed: only {count}/{job['image_count']} views registered together. "
+                               "At least 2 overlapping views are required.")
+        if count / job["image_count"] < min_fraction:
+            print(f"Warning: Only {count}/{job['image_count']} views registered together. "
+                  "Continuing reconstruction with best registered cluster instead of aborting.", flush=True)
         best_txt = f"{work}/model_txt_{best_model.name}"
         selected, all_names = dense_view_names(Path(best_txt) / "images.txt", job["soft_views"], job["view_limit"])
         print("@@RECON_STAGE@@undistort", flush=True)
@@ -515,7 +560,7 @@ def reconstruct_mesh(job):
 
             print("@@RECON_STAGE@@mesh", flush=True)
             poisson_depth = str(mesh_cfg.get("poisson_depth", 13))
-            poisson_trim = str(mesh_cfg.get("poisson_trim", 1))
+            poisson_trim = str(mesh_cfg.get("poisson_trim", 7))
 
             poisson_cmd = colmap + ["poisson_mesher", "--input_path", fused, "--output_path", full_mesh,
                                    "--PoissonMeshing.depth", poisson_depth,
@@ -594,26 +639,16 @@ def reconstruct_mesh(job):
                 raise RuntimeError("AR texturing failed: " + tail[-1000:])
             seconds_ar_texture = round(time.time() - started, 1)
 
-        result_dir = f"{work}/result"
-        shutil.rmtree(result_dir, ignore_errors=True)
-        os.makedirs(f"{result_dir}/workspace", exist_ok=True)
-        shutil.copy2(fused, f"{result_dir}/fused.ply")
-        for name in ("sparse", "project.ini"):
-            source_path = f"{undistorted}/{name}"
-            if os.path.isdir(source_path):
-                shutil.copytree(source_path, f"{result_dir}/workspace/{name}")
-            elif os.path.isfile(source_path):
-                shutil.copy2(source_path, f"{result_dir}/workspace/{name}")
-        shutil.copytree(best_txt, f"{result_dir}/best_model_txt")
-        shutil.copytree(mesh_out, f"{result_dir}/mesh")
-        shutil.copytree(ar_out, f"{result_dir}/ar")
-
         result_tar = "/content/reconstruction_result.tar.gz"
-        if os.path.exists(result_tar):
-            os.remove(result_tar)
-        with tarfile.open(result_tar, "w:gz") as archive:
-            for name in ("fused.ply", "workspace", "best_model_txt", "mesh", "ar"):
-                archive.add(f"{result_dir}/{name}", arcname=name)
+        with tarfile.open(result_tar, "w:gz", compresslevel=1) as archive:
+            archive.add(fused, arcname="fused.ply")
+            for name in ("sparse", "project.ini"):
+                source_path = Path(undistorted) / name
+                if source_path.exists():
+                    archive.add(source_path, arcname=f"workspace/{name}")
+            archive.add(best_txt, arcname="best_model_txt")
+            archive.add(mesh_out, arcname="mesh")
+            archive.add(ar_out, arcname="ar")
             if os.path.isfile(LOG):
                 archive.add(LOG, arcname="reconstruction.log")
         result_parts = split_result(result_tar, "reconstruction_result.part", job["chunk_bytes"])
@@ -826,8 +861,8 @@ def compress_splat(ply, out_dir, formats):
     return results
 
 
-def clean_ply(src, dst, min_opacity=0.3, max_scale_frac=0.05, crop_factor=1.5):
-    """Drop likely floaters from a 3DGS PLY: near-transparent, oversized, and far-away Gaussians."""
+def clean_ply(src, dst, min_opacity=0.3, max_scale_frac=0.05, crop_factor=1.5, bbox_margin=None):
+    """Drop likely floaters from a 3DGS PLY: near-transparent, oversized, far-away, and out-of-bounds Gaussians."""
     import numpy as np
 
     read = {"float": "<f4", "float32": "<f4", "double": "<f8", "uchar": "u1", "uint8": "u1",
@@ -838,7 +873,10 @@ def clean_ply(src, dst, min_opacity=0.3, max_scale_frac=0.05, crop_factor=1.5):
     props, n, in_vertex = [], None, False
     with open(src, "rb") as fh:
         while True:
-            line = fh.readline().decode("ascii").strip()
+            raw = fh.readline()
+            if not raw:
+                raise ValueError("Truncated PLY header")
+            line = raw.decode("ascii").strip()
             if line.startswith("format") and "binary_little_endian" not in line:
                 raise ValueError("Only binary little-endian PLY files are supported")
             if line.startswith("element"):
@@ -851,7 +889,14 @@ def clean_ply(src, dst, min_opacity=0.3, max_scale_frac=0.05, crop_factor=1.5):
                 props.append((name, read[typ]))
             elif line == "end_header":
                 break
-        d = np.fromfile(fh, dtype=np.dtype(props), count=n)
+        if n is None or n < 0 or not props:
+            raise ValueError("Invalid PLY vertex header")
+        dtype = np.dtype(props)
+        if n * dtype.itemsize > os.fstat(fh.fileno()).st_size - fh.tell():
+            raise ValueError("Truncated PLY vertex data")
+        d = np.fromfile(fh, dtype=dtype, count=n)
+        if len(d) != n:
+            raise ValueError("Truncated PLY vertex data")
 
     xyz = np.stack([d["x"], d["y"], d["z"]], axis=1).astype(np.float64)
     opacity = 1 / (1 + np.exp(-d["opacity"].astype(np.float64)))
@@ -864,9 +909,23 @@ def clean_ply(src, dst, min_opacity=0.3, max_scale_frac=0.05, crop_factor=1.5):
     dist = np.linalg.norm(xyz - center, axis=1)
     radius = float(np.percentile(dist[solid], 90))
     keep, removed = np.ones(len(d), bool), {}
-    for label, mask in (("low_opacity", opacity >= min_opacity),
-                        ("oversized", size <= max_scale_frac * radius if max_scale_frac else keep),
-                        ("far_away", dist <= crop_factor * radius if crop_factor else keep)):
+
+    filters = [
+        ("low_opacity", opacity >= min_opacity),
+        ("oversized", size <= max_scale_frac * radius if max_scale_frac else keep),
+        ("far_away", dist <= crop_factor * radius if crop_factor else keep),
+    ]
+
+    if bbox_margin is not None and float(bbox_margin) > 0:
+        p_low = np.percentile(xyz[solid], 1, axis=0)
+        p_high = np.percentile(xyz[solid], 99, axis=0)
+        span = np.maximum(p_high - p_low, 1e-4)
+        margin = float(bbox_margin) * span
+        min_box, max_box = p_low - margin, p_high + margin
+        in_bbox = np.all((xyz >= min_box) & (xyz <= max_box), axis=1)
+        filters.append(("out_of_bounds", in_bbox))
+
+    for label, mask in filters:
         before = int(keep.sum())
         keep &= mask
         removed[label] = before - int(keep.sum())
@@ -886,7 +945,7 @@ def splat(job):
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     with tarfile.open(job["workspace_tar"]) as tar:
-        tar.extractall(work)
+        tar.extractall(work, filter="data")
     ws = f"{work}/workspace"
     gpu = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
 
@@ -956,13 +1015,16 @@ def gsplat_check(job):
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work)
         with tarfile.open(job["workspace_tar"]) as tar:
-            tar.extractall(work)
+            tar.extractall(work, filter="data")
         ws = f"{work}/workspace"
         from PIL import Image
 
-        for name in open(f"{ws}/image_names.txt").read().split("\n"):
+        image_root = (Path(ws) / "images").resolve()
+        for name in (Path(ws) / "image_names.txt").read_text().splitlines():
             if name:
-                path = f"{ws}/images/{name}"
+                path = (image_root / name).resolve()
+                if not path.is_relative_to(image_root):
+                    raise ValueError("Image path escapes the workspace")
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 Image.new("RGB", (64, 48)).save(path)
         rc, tail = stream([sys.executable, "-c", PARSER_TEST, ws], cwd=f"{src}/examples", env=env)

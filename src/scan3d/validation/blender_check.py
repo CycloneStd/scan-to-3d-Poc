@@ -39,6 +39,38 @@ def main():
     report["texture_sizes"] = {n.image.name: list(n.image.size) for n in tex_nodes}
 
     if meshes:
+        for o in meshes:
+            bpy.context.view_layer.objects.active = o
+            try:
+                bpy.ops.object.shade_smooth()
+                if hasattr(o.data, "use_auto_smooth"):
+                    o.data.use_auto_smooth = True
+                    o.data.auto_smooth_angle = 0.523599
+                else:
+                    bpy.ops.object.modifier_add(type="WEIGHTED_NORMAL")
+                    o.modifiers["WeightedNormal"].keep_sharp = True
+            except Exception:
+                pass
+
+            for slot in o.material_slots:
+                mat = slot.material
+                if not mat or not mat.use_nodes:
+                    continue
+                mat.use_backface_culling = False
+                principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+                if principled:
+                    if "Roughness" in principled.inputs:
+                        principled.inputs["Roughness"].default_value = 0.65
+                    if "Specular" in principled.inputs:
+                        principled.inputs["Specular"].default_value = 0.25
+                    elif "Specular IOR Level" in principled.inputs:
+                        principled.inputs["Specular IOR Level"].default_value = 0.25
+                    if "Metallic" in principled.inputs:
+                        principled.inputs["Metallic"].default_value = 0.0
+                    tex = next((n for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image), None)
+                    if tex and "Base Color" in principled.inputs:
+                        mat.node_tree.links.new(tex.outputs["Color"], principled.inputs["Base Color"])
+
         corners = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
         lo = Vector((min(c.x for c in corners), min(c.y for c in corners), min(c.z for c in corners)))
         hi = Vector((max(c.x for c in corners), max(c.y for c in corners), max(c.z for c in corners)))
@@ -55,8 +87,9 @@ def main():
             try:
                 scene.render.engine = "BLENDER_WORKBENCH"
                 scene.render.resolution_x, scene.render.resolution_y = 1280, 800
-                scene.display.shading.light = "FLAT"
+                scene.display.shading.light = "STUDIO"
                 scene.display.shading.color_type = "TEXTURE" if textures else "VERTEX"
+                scene.display.shading.show_cavity = True
                 cam_data = bpy.data.cameras.new("cam")
                 cam_data.clip_end = size * 20
                 cam = bpy.data.objects.new("cam", cam_data)

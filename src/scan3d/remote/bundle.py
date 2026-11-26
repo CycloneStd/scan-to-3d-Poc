@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import tarfile
 from pathlib import Path
 
 
 def pack(sources: dict[str, Path], out: Path) -> str:
-    with tarfile.open(out, "w:gz", compresslevel=1, dereference=True) as tar:
-        for arcname, src in sources.items():
-            tar.add(src, arcname=arcname)
+    # The archive digest identifies resumable remote work. Ignore staging timestamps.
+    def normalize(member):
+        member.mtime = 0
+        member.uid = member.gid = 0
+        member.uname = member.gname = ""
+        return member
+
+    with out.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=1, mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w|", dereference=True) as tar:
+            for arcname, src in sorted(sources.items()):
+                tar.add(src, arcname=arcname, filter=normalize)
     return sha256(out)
 
 
@@ -26,6 +35,8 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 def split_file(path: Path, out_dir: Path, prefix: str, chunk_bytes: int) -> list[Path]:
+    if chunk_bytes <= 0:
+        raise ValueError("Chunk size must be positive")
     parts: list[Path] = []
     with open(path, "rb") as fh:
         i = 0

@@ -45,3 +45,14 @@ def test_dense_selection_tracks_motion_and_keeps_small_sets(tmp_path):
     with pytest.raises(ValueError, match="Move around"):
         dense_view_names(model, [], 4)
 
+
+def test_remote_progress_handles_split_markers_without_finishing_local_stages(tmp_path):
+    run = RunDir(tmp_path)
+    ctx = Context({}, run, Manifest(run.manifest_path))
+    track = REGISTRY["reconstruction"]._track_remote_stages(ctx)
+    track("@@RECON_STAGE@@")
+    track("features\n" + "noise " * 1000 + "\n@@RECON_STA")
+    assert ctx.manifest.get("reconstruction")["remote_stage"] == "features"
+    track("GE@@sparse\n")
+    assert ctx.manifest.get("reconstruction")["remote_stage"] == "sparse"
+    assert ctx.manifest.get("features") is None

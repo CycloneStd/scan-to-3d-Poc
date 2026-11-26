@@ -35,11 +35,22 @@ class ExportStage(Stage):
         tex_ply = exports / "textured" / "mesh.ply"
         tex_png = exports / "textured" / "texture.png"
         if tex_ply.exists() and tex_png.exists():
+            fused_file = ctx.run.stage_dir("06_reconstruction") / "fused.ply"
+            if not fused_file.exists():
+                cand = ctx.run.stage_dir("06_dense") / "fused.ply"
+                if cand.exists():
+                    fused_file = cand
+            from ..utils.ply_to_obj import read_ply_points
+            fused_pts = read_ply_points(fused_file) if fused_file.exists() else None
+
             conversion = convert_textured_ply(tex_ply, tex_png.name, exports / "textured" / "model.obj",
                                               flip_v=ctx.cfg["export"]["flip_v"],
-                                              max_edge_factor=ctx.cfg["mesh"].get("max_edge_factor"))
+                                              max_edge_factor=ctx.cfg["mesh"].get("max_edge_factor"),
+                                              min_component_faces=ctx.cfg["mesh"].get("min_component_faces", 25),
+                                              fused_pts=fused_pts)
 
         obj = exports / "textured" / "model.obj"
+        orientation = None
         if obj.exists():
             # Orient mesh upright if camera poses are available
             images_txt = ctx.run.stage_dir("06_reconstruction") / "best_model_txt" / "images.txt"
@@ -51,9 +62,16 @@ class ExportStage(Stage):
                         break
             if images_txt.exists():
                 try:
-                    from ..ar import estimate_up, orient_obj
-                    up, _, _ = estimate_up(images_txt)
-                    orient_obj(obj, up, scale=None)
+                    import numpy as np
+                    from ..ar import estimate_up_robust, orient_obj
+                    vertices = []
+                    with obj.open() as f:
+                        for line in f:
+                            if line.startswith("v "):
+                                vertices.append([float(x) for x in line.split()[1:4]])
+                    pts_arr = np.array(vertices, dtype=np.float64) if vertices else None
+                    up, _, _, _, ground_d = estimate_up_robust(images_txt, points=pts_arr)
+                    orientation = orient_obj(obj, up, scale=None, ground_plane_d=ground_d)
                 except Exception:
                     pass
 
@@ -77,5 +95,7 @@ class ExportStage(Stage):
         if not report.get("faces") or not report.get("glb_bytes"):
             raise RuntimeError("Blender did not export a nonempty mesh")
         report["source_mesh"] = str(src.relative_to(ctx.run.root))
+        report["obj_orientation"] = orientation
         report["obj_conversion"] = conversion
+        report_path.write_text(json.dumps(report, indent=2))
         return report

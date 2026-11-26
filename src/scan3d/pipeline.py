@@ -46,7 +46,7 @@ def execute(ctx: Context, names: list[str], registry: dict[str, Stage], force: b
         upstream = {}
         for req in stage.requires:
             rec = ctx.manifest.get(req)
-            if not rec or rec.get("status") != "done":
+            if not rec or rec.get("status") != "done" or not rec.get("fingerprint"):
                 raise RuntimeError(f"Stage '{name}' needs '{req}' to be completed first")
             upstream[req] = rec["fingerprint"]
         fp = fingerprint(

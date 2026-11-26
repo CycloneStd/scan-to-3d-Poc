@@ -44,8 +44,7 @@ class ReconstructionStage(Stage):
         ingest_dir = ctx.run.stage_dir("01_ingest")
         input_dir = out / "upload" / "input"
         shutil.rmtree(input_dir, ignore_errors=True)
-        images_dir = input_dir / "images"
-        images_dir.mkdir(parents=True)
+        input_dir.mkdir(parents=True)
 
         image_names = sorted(
             str(Path(relative).relative_to(ingest_dir / "images")).replace("\\", "/")
@@ -57,16 +56,13 @@ class ReconstructionStage(Stage):
                       for row in validation["images"] if row["flags"]]
         if not image_names:
             raise RuntimeError("Image validation accepted no photos for reconstruction.")
-        for name in image_names:
-            source = ingest_dir / "images" / name
-            destination = images_dir / name
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-        (input_dir / "image_list.txt").write_text("\n".join(image_names), encoding="utf-8")
-
-        shutil.copy2(Path(__file__).parents[1] / "remote" / "learned_sparse.py", input_dir)
+        image_list = input_dir / "image_list.txt"
+        image_list.write_text("\n".join(image_names), encoding="utf-8")
+        sources = {f"input/images/{name}": ingest_dir / "images" / name for name in image_names}
+        sources["input/image_list.txt"] = image_list
+        sources["input/learned_sparse.py"] = Path(__file__).parents[1] / "remote" / "learned_sparse.py"
         input_tar = out / "colab_input.tar.gz"
-        digest = pack({"input": input_dir}, input_tar)
+        digest = pack(sources, input_tar)
         upload_mb = round(input_tar.stat().st_size / 1e6, 1)
         shutil.rmtree(out / "upload", ignore_errors=True)
 
@@ -98,6 +94,7 @@ class ReconstructionStage(Stage):
                 "matcher": effective_matcher(cfg),
                 "sequential_overlap": int(cfg["features"]["sequential_overlap"]),
                 "camera_model": cfg["features"]["camera_model"],
+                "single_camera": bool(cfg.get("features", {}).get("single_camera", False)),
                 "max_image_size": int(cfg["features"]["max_image_size"]),
                 "num_threads": int(cfg["features"]["num_threads"]),
                 "mapper": cfg["sparse"]["mapper"],
@@ -110,7 +107,8 @@ class ReconstructionStage(Stage):
                     "texture": bool(cfg.get("mesh", {}).get("texture", True)),
                     "target_face_ratio": cfg.get("mesh", {}).get("target_face_ratio", 0.05),
                     "poisson_depth": int(cfg.get("mesh", {}).get("poisson_depth", 13)),
-                    "poisson_trim": int(cfg.get("mesh", {}).get("poisson_trim", 1)),
+                    "poisson_trim": int(cfg.get("mesh", {}).get("poisson_trim", 7)),
+                    "max_edge_factor": float(cfg.get("mesh", {}).get("max_edge_factor", 4.5)),
                 },
                 "ar": {
                     "target_faces": int(cfg.get("ar", {}).get("target_faces", 100000)),
@@ -132,8 +130,6 @@ class ReconstructionStage(Stage):
         input_tar.unlink(missing_ok=True)
         result_tar.unlink(missing_ok=True)
 
-        for stage in ("features", "sparse", "undistort", "dense"):
-            ctx.manifest.update(stage, status="done", finished="remote-complete")
         return {
             "input_images": len(image_names),
             "dense_views": data["dense_views"],
@@ -172,17 +168,11 @@ class ReconstructionStage(Stage):
 
         def update(chunk: str) -> None:
             nonlocal buffer
-            buffer = (buffer + chunk)[-512:]
-            marker = "@@RECON_STAGE@@"
-            if marker not in buffer:
-                return
-            stage = buffer.rsplit(marker, 1)[1].splitlines()[0].strip()
-            if stage not in order:
-                return
-            for name in order:
-                if name == stage:
-                    ctx.manifest.update(name, status="running", started="remote")
-                    break
-                ctx.manifest.update(name, status="done", finished="remote")
+            lines = (buffer + chunk).split("\n")
+            buffer = lines.pop()[-128:]
+            for line in lines:
+                _, separator, stage = line.strip().partition("@@RECON_STAGE@@")
+                if separator and stage in order:
+                    ctx.manifest.update("reconstruction", remote_stage=stage)
 
         return update

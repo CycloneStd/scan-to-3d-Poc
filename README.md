@@ -31,6 +31,13 @@ The web app, API, and reconstruction worker setup is documented in [webxr/backen
 ## Notes
 See the [reconstruction plan and benchmark procedure](docs/reconstruction-plan.md) and [known limitations](docs/limitations.md). A 125-photo dense run used about 80 minutes of T4 time.
 
+## Key Pipeline Features & Accuracy Improvements
+- **Universal Image Ingestion**: Accepts JPG, PNG, WebP, BMP, TIFF, and HEIC/HEIF (with `pillow-heif`), normalizing EXIF orientation automatically.
+- **Robust Multi-Angle Matching**: Integrates learned recovery (SuperPoint + LightGlue) when classic SIFT matching fails across steep viewing angles or wide baselines.
+- **Fault-Tolerant Registration**: Continues reconstruction on the best registered cluster even if challenging angles cannot be co-registered, avoiding complete run failures.
+- **Clean Poisson Trimming & Hallucination Removal**: Prunes low-density boundary balloons (`poisson_trim: 7`), eliminates stretched bridging triangles (`max_edge_factor: 6.0`), filters floating noise clusters, and strips unsupported mesh faces that have no measured point cloud backing.
+- **Photorealistic PBR Textures**: Eliminates flat "sheet of paper" rendering by applying double-sided Principled BSDF shaders with realistic roughness, smooth normals, and crisp 4096px texture baking.
+
 ## Tracks
 - Mesh track (editable, AR): `scan3d run --config configs/<name>.yaml` (ingest and validate locally; feature extraction through dense reconstruction in one Colab job; mesh, export, and AR export locally)
 - Splat track (web viewer): `scan3d run --config configs/<name>.yaml --track splat`
