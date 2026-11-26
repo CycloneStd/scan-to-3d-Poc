@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import numpy as np
 
@@ -12,7 +13,10 @@ def read_ply(path):
     props, n, in_vertex = [], None, False
     with open(path, "rb") as fh:
         while True:
-            line = fh.readline().decode("ascii").strip()
+            raw = fh.readline()
+            if not raw:
+                raise ValueError("Truncated PLY header")
+            line = raw.decode("ascii").strip()
             if line.startswith("format") and "binary_little_endian" not in line:
                 raise SystemExit("Only binary little-endian PLY files are supported")
             if line.startswith("element"):
@@ -25,7 +29,15 @@ def read_ply(path):
                 props.append((name, READ[typ]))
             elif line == "end_header":
                 break
-        return np.fromfile(fh, dtype=np.dtype(props), count=n), props
+        if n is None or n < 0 or not props:
+            raise ValueError("Invalid PLY vertex header")
+        dtype = np.dtype(props)
+        if n * dtype.itemsize > os.fstat(fh.fileno()).st_size - fh.tell():
+            raise ValueError("Truncated PLY vertex data")
+        d = np.fromfile(fh, dtype=dtype, count=n)
+        if len(d) != n:
+            raise ValueError("Truncated PLY vertex data")
+        return d, props
 
 
 def main():
@@ -37,6 +49,8 @@ def main():
                     help="largest allowed Gaussian size as a fraction of the scene radius (0 = off)")
     ap.add_argument("--crop-factor", type=float, default=1.0,
                     help="keep Gaussians within this multiple of the scene radius (0 = off)")
+    ap.add_argument("--bbox-margin", type=float, default=0.2,
+                    help="keep Gaussians within tight bounding box plus margin fraction (0 = off)")
     a = ap.parse_args()
 
     d, props = read_ply(a.src)
@@ -66,6 +80,14 @@ def main():
         apply(f"size <= {a.max_scale_frac} x radius", size <= a.max_scale_frac * radius)
     if a.crop_factor > 0:
         apply(f"distance <= {a.crop_factor} x radius", dist <= a.crop_factor * radius)
+    if a.bbox_margin > 0:
+        p_low = np.percentile(xyz[solid], 1, axis=0)
+        p_high = np.percentile(xyz[solid], 99, axis=0)
+        span = np.maximum(p_high - p_low, 1e-4)
+        margin = a.bbox_margin * span
+        min_box, max_box = p_low - margin, p_high + margin
+        in_bbox = np.all((xyz >= min_box) & (xyz <= max_box), axis=1)
+        apply(f"within bbox (margin={a.bbox_margin})", in_bbox)
 
     out = d[keep]
     header = "ply\nformat binary_little_endian 1.0\nelement vertex %d\n" % len(out)

@@ -40,7 +40,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-    expose_headers=["Content-Disposition", "X-Request-ID"],
+    expose_headers=["Content-Disposition", "X-Request-ID", "Retry-After"],
     max_age=600,
 )
 
@@ -48,7 +48,7 @@ app.add_middleware(
 @app.middleware("http")
 async def security_headers(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(f"{settings.api_prefix}/auth/"):
+    if request.url.path.startswith(f"{settings.api_prefix}/"):
         response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
     response.headers.setdefault("X-Content-Type-Options", "nosniff")

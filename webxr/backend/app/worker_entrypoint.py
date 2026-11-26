@@ -30,8 +30,13 @@ def _install_colab_token() -> None:
 def main() -> None:
     os.environ.setdefault("PYTHONKEYRING_BACKEND", "keyring.backends.null.Keyring")
     _install_colab_token()
+    from .config import get_settings
+
+    concurrency = get_settings().worker_concurrency
+    if concurrency < 1:
+        raise SystemExit("WEBXR_WORKER_CONCURRENCY must be positive")
     os.execvp("celery", ["celery", "-A", "app.worker:celery_app", "worker",
-                         "--loglevel=INFO", "--concurrency=1"])
+                         "--loglevel=INFO", f"--concurrency={concurrency}"])
 
 
 if __name__ == "__main__":

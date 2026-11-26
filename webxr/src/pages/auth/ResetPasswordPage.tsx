@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { authApi } from '../../services/auth'
 import LoginImageCards from '../../components/auth/LoginImageCards'
 import cycloneWordmark from '../../assets/cyclone-wordmark.webp'
@@ -16,11 +16,10 @@ function PasswordField({ id, label }: { id: string; label: string }) {
 }
 
 export default function ResetPasswordPage() {
-  const [resetToken] = useState(() => {
-    const token = new URLSearchParams(window.location.search).get('token') || ''
-    if (token) window.history.replaceState(null, '', '/reset-password')
-    return token
-  })
+  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('token') || '')
+  useEffect(() => {
+    if (resetToken) window.history.replaceState(null, '', '/reset-password')
+  }, [resetToken])
   const [error, setError] = useState('')
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..dependencies import get_current_user
 from ..db import get_db
-from ..models import AuthToken, User, utcnow
+from ..models import AuthToken, User, has_expired, utcnow
 from ..rate_limit import rate_limit
 from ..schemas import (EmailRequest, LoginRequest, MessageResponse, PasswordChangeRequest, PasswordResetRequest,
                        RefreshRequest, RegisterRequest, TokenPair, TokenRequest, UserResponse)
@@ -92,6 +92,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == email).with_for_update())
     if user:
         if user.is_active and not user.email_verified_at:
+            # The new verification link must activate the password supplied with this registration.
+            user.password_hash = hash_password(payload.password)
             _resend_verification_for_user(user, db)
         return MessageResponse(message="If the address can be registered, verification instructions will be sent.")
     user = User(email=email, password_hash=hash_password(payload.password))
@@ -114,7 +116,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
              dependencies=[Depends(rate_limit("verify-email", 10))])
 def verify_email(payload: TokenRequest, db: Session = Depends(get_db)):
     record = db.scalar(select(AuthToken).where(AuthToken.token_hash == hash_token(payload.token), AuthToken.kind == "verify").with_for_update())
-    if not record or record.consumed_at or record.expires_at <= utcnow():
+    if not record or record.consumed_at or has_expired(record.expires_at):
         raise HTTPException(status_code=400, detail="Verification link is invalid or expired")
     user = db.get(User, record.user_id)
     if not user or not user.is_active:
@@ -152,7 +154,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 @router.post("/refresh", response_model=TokenPair, dependencies=[Depends(rate_limit("refresh", 20))])
 def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     record = db.scalar(select(AuthToken).where(AuthToken.token_hash == hash_token(payload.refresh_token), AuthToken.kind == "refresh").with_for_update())
-    if not record or record.consumed_at or record.expires_at <= utcnow():
+    if not record or record.consumed_at or has_expired(record.expires_at):
         raise HTTPException(status_code=401, detail="Refresh token is invalid or expired")
     user = db.get(User, record.user_id)
     if not user or not user.is_active or not user.email_verified_at:
@@ -191,7 +193,7 @@ def forgot_password(payload: EmailRequest, db: Session = Depends(get_db)):
              dependencies=[Depends(rate_limit("password-reset", 8))])
 def reset_password(payload: PasswordResetRequest, db: Session = Depends(get_db)):
     record = db.scalar(select(AuthToken).where(AuthToken.token_hash == hash_token(payload.token), AuthToken.kind == "reset").with_for_update())
-    if not record or record.consumed_at or record.expires_at <= utcnow():
+    if not record or record.consumed_at or has_expired(record.expires_at):
         raise HTTPException(status_code=400, detail="Reset link is invalid or expired")
     user = db.get(User, record.user_id)
     if not user or not user.is_active:

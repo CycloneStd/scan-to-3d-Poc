@@ -23,16 +23,21 @@ export function hasActiveAccessToken() {
   )
 }
 
+let sessionVersion = 0
+let pendingRefresh: { token: string; result: Promise<string> } | undefined
+
 export async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
+  const version = sessionVersion
   let access = sessionStorage.getItem(ACCESS_KEY)
   if (!access || Number(sessionStorage.getItem('webxr.expires') || 0) <= Date.now()) {
     access = await refreshAccessToken()
   }
   headers.set('Authorization', `Bearer ${access}`)
   let response = await fetch(apiUrl(path), { ...init, headers, credentials: 'omit' })
-  if (response.status === 401) {
-    access = await refreshAccessToken()
+  if (response.status === 401 && version === sessionVersion) {
+    const current = sessionStorage.getItem(ACCESS_KEY)
+    access = current && current !== access ? current : await refreshAccessToken()
     headers.set('Authorization', `Bearer ${access}`)
     response = await fetch(apiUrl(path), { ...init, headers, credentials: 'omit' })
   }
@@ -42,13 +47,6 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
 async function request<T>(path: string, init: RequestInit = {}, authenticated = false): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Content-Type', 'application/json')
-  if (authenticated) {
-    let access = sessionStorage.getItem(ACCESS_KEY)
-    if (!access || Number(sessionStorage.getItem('webxr.expires') || 0) <= Date.now()) {
-      access = await refreshAccessToken()
-    }
-    headers.set('Authorization', `Bearer ${access}`)
-  }
   const response = authenticated
     ? await authenticatedFetch(path, { ...init, headers, redirect: 'error' })
     : await fetch(apiUrl(path), { ...init, headers, credentials: 'omit', redirect: 'error' })
@@ -59,7 +57,8 @@ async function request<T>(path: string, init: RequestInit = {}, authenticated = 
   return response.status === 204 ? undefined as T : response.json() as Promise<T>
 }
 
-function saveTokens(tokens: TokenPair) {
+function saveTokens(tokens: TokenPair, newSession = true) {
+  if (newSession) sessionVersion++
   sessionStorage.setItem(ACCESS_KEY, tokens.access_token)
   sessionStorage.setItem(REFRESH_KEY, tokens.refresh_token)
   sessionStorage.setItem('webxr.expires', String(Date.now() + tokens.expires_in * 1000 - 30_000))
@@ -67,15 +66,31 @@ function saveTokens(tokens: TokenPair) {
 
 async function refreshAccessToken(): Promise<string> {
   const refresh = sessionStorage.getItem(REFRESH_KEY)
-  if (!refresh) { clearSession(); throw new Error('Please sign in to continue.') }
+  if (!refresh) throw new ApiRequestError('Please sign in to continue.', 401)
+  if (pendingRefresh?.token === refresh) return pendingRefresh.result
+  const result = rotateRefreshToken(refresh)
+  pendingRefresh = { token: refresh, result }
+  try {
+    return await result
+  } finally {
+    if (pendingRefresh?.result === result) pendingRefresh = undefined
+  }
+}
+
+async function rotateRefreshToken(refresh: string) {
   try {
     const tokens = await request<TokenPair>('/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token: refresh }) })
-    saveTokens(tokens)
+    if (sessionStorage.getItem(REFRESH_KEY) !== refresh) throw new ApiRequestError('Session changed.', 401)
+    saveTokens(tokens, false)
     return tokens.access_token
-  } catch (error) { clearSession(); throw error }
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401 && sessionStorage.getItem(REFRESH_KEY) === refresh) clearSession()
+    throw error
+  }
 }
 
 export function clearSession() {
+  sessionVersion++
   sessionStorage.removeItem(ACCESS_KEY)
   sessionStorage.removeItem(REFRESH_KEY)
   sessionStorage.removeItem('webxr.expires')

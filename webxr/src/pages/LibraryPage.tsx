@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type Ref } from 'react'
 import cycloneMark from '../assets/cyclone-mark.webp'
 import rocketIcon from '../assets/rocket-lucide.svg'
 import AppHeader from '../components/library/AppHeader'
@@ -13,7 +13,7 @@ type ScanCard = ScanRecord & { type: string; date: string; source: string; sourc
 
 function toScanCard(scan: ScanRecord): ScanCard {
   const images = scan.assets.filter((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('image/'))
-  const video = scan.assets.find((asset) => asset.status === 'uploaded' && asset.content_type.startsWith('video/'))
+  const video = scan.assets.find((asset) => asset.status === 'uploaded' && (asset.content_type.startsWith('video/') || asset.content_type === 'application/mp4'))
   const latestJob = scan.jobs[0]
   const seconds = latestJob?.started_at && latestJob.finished_at
     ? Math.max(0, Math.floor((Date.parse(latestJob.finished_at) - Date.parse(latestJob.started_at)) / 1000))
@@ -65,7 +65,7 @@ function resultArtifact(scan: ScanRecord): ScanArtifact | null {
   const modelGlb = scan.artifacts.find((a) => a.filename.toLowerCase() === 'model.glb')
   if (modelGlb) return modelGlb
   const artifacts = scan.artifacts.filter((artifact) => ['glb', 'gltf', 'obj', 'ply', 'spz'].includes(fileExtension(artifact.filename)))
-  const priority = ['glb', 'obj', 'ply', 'spz', 'gltf']
+  const priority = ['glb', 'obj', 'spz', 'ply', 'gltf']
   return artifacts.sort((a, b) => priority.indexOf(fileExtension(a.filename)) - priority.indexOf(fileExtension(b.filename)))[0] ?? null
 }
 
@@ -74,7 +74,7 @@ function fileKind(file: File): 'photos' | 'video' | null {
   const imageExtensions = ['jpg', 'jpeg', 'png']
   const videoExtensions = ['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm']
   if (imageExtensions.includes(extension ?? '') && (!file.type || file.type === 'image/jpeg' || file.type === 'image/png')) return 'photos'
-  if (videoExtensions.includes(extension ?? '') && (!file.type || file.type.startsWith('video/'))) return 'video'
+  if (videoExtensions.includes(extension ?? '') && (!file.type || file.type.startsWith('video/') || file.type === 'application/mp4')) return 'video'
   return null
 }
 
@@ -120,9 +120,9 @@ async function preloadSourceImage(assetId: string) {
   }
 }
 
-function PreviewPlaceholder() {
+function PreviewPlaceholder({ elementRef }: { elementRef?: Ref<HTMLDivElement> }) {
   return (
-    <div className="library-preview-placeholder" aria-hidden="true">
+    <div className="library-preview-placeholder" ref={elementRef} aria-hidden="true">
       <img src={cycloneMark} alt="" />
       <span>Preparing preview…</span>
     </div>
@@ -166,6 +166,7 @@ function SourceAssetImage({ asset, name, index }: { asset: ScanAsset; name: stri
 }
 
 function CardPreviewMedia({ scan }: { scan: ScanCard }) {
+  const placeholder = useRef<HTMLDivElement>(null)
   const [src, setSrc] = useState<string>()
   const [loaded, setLoaded] = useState(false)
 
@@ -184,11 +185,12 @@ function CardPreviewMedia({ scan }: { scan: ScanCard }) {
     setSrc(undefined)
     setLoaded(false)
 
+    const controller = new AbortController()
     async function loadMedia() {
       try {
         let blob: Blob
         if (renderArtifact) {
-          blob = await scansApi.artifact(renderArtifact.id)
+          blob = await scansApi.artifact(renderArtifact.id, controller.signal)
         } else if (firstPhoto) {
           blob = await getSourceImageBlob(firstPhoto.id)
         } else {
@@ -209,14 +211,28 @@ function CardPreviewMedia({ scan }: { scan: ScanCard }) {
       }
     }
 
-    void loadMedia()
+    const element = placeholder.current
+    let observer: IntersectionObserver | undefined
+    if (element && typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver((entries) => {
+        if (active && entries.some((entry) => entry.isIntersecting)) {
+          observer?.disconnect()
+          void loadMedia()
+        }
+      }, { rootMargin: '400px' })
+      observer.observe(element)
+    } else {
+      void loadMedia()
+    }
     return () => {
       active = false
+      observer?.disconnect()
+      controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [renderArtifact?.id, firstPhoto?.id])
 
-  if (!src) return <PreviewPlaceholder />
+  if (!src) return <PreviewPlaceholder elementRef={placeholder} />
 
   return (
     <img
@@ -257,8 +273,12 @@ export default function LibraryPage() {
   const closeScanDrawerButtonRef = useRef<HTMLButtonElement>(null)
   const scanFileInputRef = useRef<HTMLInputElement>(null)
   const uploadKind = scanFiles.length ? fileKind(scanFiles[0]) : null
+  const refreshSequence = useRef(0)
+  const mounted = useRef(false)
   const refreshScans = useCallback(async () => {
+    const sequence = ++refreshSequence.current
     const records = (await scansApi.list()).map(toScanCard)
+    if (!mounted.current || sequence !== refreshSequence.current) return records
     setScans(records)
     setHasLoadedScans(true)
     setSelectedScan((current) => current ? records.find((scan) => scan.id === current.id) ?? current : current)
@@ -266,14 +286,27 @@ export default function LibraryPage() {
   }, [])
 
   useEffect(() => {
+    mounted.current = true
     void refreshScans().catch((error: unknown) => console.error('The scan library could not be loaded.', error))
+    return () => { mounted.current = false }
   }, [refreshScans])
 
   const hasActiveScans = scans.some((scan) => scan.status === 'queued' || scan.status === 'processing')
   useEffect(() => {
     if (!hasActiveScans) return
-    const timer = window.setInterval(() => { void refreshScans().catch((error: unknown) => console.error('Scan statuses could not be refreshed.', error)) }, 5000)
-    return () => window.clearInterval(timer)
+    let active = true
+    let timer: number
+    async function poll() {
+      try {
+        if (!document.hidden) await refreshScans()
+      } catch (error) {
+        console.error('Scan statuses could not be refreshed.', error)
+      } finally {
+        if (active) timer = window.setTimeout(poll, 5000)
+      }
+    }
+    timer = window.setTimeout(poll, 5000)
+    return () => { active = false; window.clearTimeout(timer) }
   }, [hasActiveScans, refreshScans])
 
   useEffect(() => {
@@ -463,7 +496,7 @@ export default function LibraryPage() {
     setScanProgress(0)
     setUploadError('')
     let scanId: string | undefined
-    let jobAccepted = false
+    let startRequested = false
     try {
       const form = new FormData(event.currentTarget)
       const scan = await scansApi.create({
@@ -474,16 +507,18 @@ export default function LibraryPage() {
       })
       scanId = scan.id
       for (const file of scanFiles) await scansApi.upload(scan.id, file)
+      startRequested = true
       let job = await scansApi.start(scan.id)
-      jobAccepted = true
       while (job.status === 'queued' || job.status === 'running') {
         setScanProgress(job.progress)
         await new Promise((resolve) => window.setTimeout(resolve, 3000))
+        if (!mounted.current) return
         job = await scansApi.job(job.id)
       }
       if (job.status !== 'succeeded') throw new Error(job.error_message || 'The scan job failed.')
       setScanProgress(100)
       const [details] = await Promise.all([scansApi.get(scan.id), refreshScans()])
+      if (!mounted.current) return
       const result = toScanCard(details)
       setIsScanDrawerOpen(false)
       setScanFiles([])
@@ -491,8 +526,8 @@ export default function LibraryPage() {
       window.history.replaceState({ scanId: scan.id }, '', `/model/${scan.id}`)
       setSelectedScan(result)
     } catch (error) {
-      if (scanId && !jobAccepted) await scansApi.remove(scanId).catch(() => undefined)
-      if (jobAccepted) await refreshScans().catch(() => undefined)
+      if (scanId && !startRequested) await scansApi.remove(scanId).catch(() => undefined)
+      if (startRequested) await refreshScans().catch(() => undefined)
       setUploadError(error instanceof Error ? error.message : 'The scan could not be completed.')
     } finally {
       setScanProgress(null)

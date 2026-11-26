@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 
 def main() -> None:
@@ -26,13 +27,14 @@ def main() -> None:
 
     target = Path(__file__).resolve().parents[1] / "webxr" / "backend" / "colab-config" / "token.json"
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".json.tmp")
-    temporary.write_text(token, encoding="utf-8")
+    handle = NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False)
+    temporary = Path(handle.name)
     try:
-        os.chmod(temporary, 0o600)
-    except OSError:
-        pass
-    os.replace(temporary, target)
+        with handle:
+            handle.write(token)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
     print(f"Colab token exported to {target}. Keep this file secret and do not commit it.")
 
 

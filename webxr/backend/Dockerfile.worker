@@ -9,7 +9,11 @@ RUN --mount=type=cache,id=s/1df32735-fa67-4a4b-98ee-1b802b9b3741-/opt/conda/pkgs
     micromamba install --yes --name base --file /tmp/environment-worker.yml
 RUN micromamba run --name base python /tmp/install_blender.py
 WORKDIR /repo
-COPY --chown=mambauser:mambauser . /repo
+COPY --chown=mambauser:mambauser pyproject.toml /repo/
+COPY --chown=mambauser:mambauser src /repo/src
+COPY --chown=mambauser:mambauser configs /repo/configs
+COPY --chown=mambauser:mambauser webxr/backend/requirements.txt /repo/webxr/backend/
+COPY --chown=mambauser:mambauser webxr/backend/app /repo/webxr/backend/app
 RUN micromamba run --name base python -m pip install --no-cache-dir -r webxr/backend/requirements.txt \
     && micromamba run --name base python -m pip install --no-cache-dir -e .
 ENV PYTHONPATH=/repo/webxr/backend

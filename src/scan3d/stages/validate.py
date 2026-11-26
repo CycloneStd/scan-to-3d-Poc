@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import statistics
-from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -27,6 +26,7 @@ class ValidateStage(Stage):
         groups = json.loads((ingest_dir / "ingest.json").read_text())["groups"]
 
         records = []
+        scores = {group: [] for group in groups}
         for group, rels in groups.items():
             for rel in rels:
                 path = ingest_dir / rel
@@ -39,6 +39,7 @@ class ValidateStage(Stage):
                     continue
                 rec.update(width=w, height=h, sharpness=round(sharpness(gray), 2),
                            brightness=round(float(gray.mean()), 1))
+                scores[group].append(rec["sharpness"])
                 rec["clipped_fraction"] = round(float(np.mean((gray <= 3) | (gray >= 252))), 3)
                 if rec["clipped_fraction"] > 0.65:
                     rec["flags"].append("clipped")
@@ -48,10 +49,7 @@ class ValidateStage(Stage):
                     rec["flags"].append("bad_exposure")
                 records.append(rec)
 
-        medians = {}
-        for g in groups:
-            vals = [r["sharpness"] for r in records if r["group"] == g and "sharpness" in r]
-            medians[g] = statistics.median(vals) if vals else 0.0
+        medians = {group: statistics.median(values) if values else 0.0 for group, values in scores.items()}
         for r in records:
             if "sharpness" in r and r["sharpness"] < max(v.get("min_sharpness", 4.0), v["blur_ratio"] * medians[r["group"]]):
                 r["flags"].append("blurry")

@@ -4,8 +4,8 @@
 - Only surfaces seen in the photographs are reconstructed. Unphotographed regions (e.g. rooftops) are missing.
 - Glass, mirrors, glossy and untextured surfaces reconstruct poorly (holes, noise, failed matching).
 - Reprojection error measures internal consistency, not accuracy.
-- Mesh simplification ratio (default 0.05) was chosen for file size and has not been measured against the full mesh.
-- Default photo matching is exhaustive and scales quadratically with image count. Video matching uses sequential pairs. Dense reconstruction needs a CUDA GPU (Colab T4).
+- Default mesh simplification ratio is 0.15 (with Poisson depth 11 and trim 7) to preserve surface relief while pruning unobserved boundary extrapolation sheets.
+- Default photo matching uses intelligent pairing. Video matching uses sequential pairs with motion-aware frame extraction. Dense reconstruction runs on a CUDA GPU (Colab T4).
 - COLMAP's coordinate frame is arbitrary; models may import rotated.
 - Video support is validated only up to the sparse stage. Video ingest samples fixed windows. The mesh track selects dense views after registering camera poses.
 - Validated on one photo dataset (front of one house).

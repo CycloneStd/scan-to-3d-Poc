@@ -10,6 +10,7 @@ def help_text(binary: str, command: str) -> str:
     return capture([binary, command, "-h"])[1]
 
 
+@lru_cache(maxsize=None)
 def version(binary: str) -> str:
     _, out = capture([binary, "-h"])
     return next((ln.strip() for ln in out.splitlines() if "COLMAP" in ln), "unknown")

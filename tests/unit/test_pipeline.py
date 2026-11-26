@@ -53,3 +53,19 @@ def test_missing_upstream_fails(tmp_path):
     ctx = make_ctx(tmp_path, {})
     with pytest.raises(RuntimeError):
         execute(ctx, ["b"], {"b": Dependent()})
+
+def test_resume_bundle_identity_depends_on_contents(tmp_path):
+    import os
+    from scan3d.remote.bundle import pack, unpack
+
+    source = tmp_path / "input.jpg"
+    source.write_bytes(b"capture")
+    entries = {"input/images/group/input.jpg": source}
+    first = pack(entries, tmp_path / "one.tar.gz")
+    os.utime(source, (1234, 1234))
+    archive = tmp_path / "two.tar.gz"
+    assert pack(entries, archive) == first
+    unpack(archive, tmp_path / "restored")
+    assert (tmp_path / "restored/input/images/group/input.jpg").read_bytes() == b"capture"
+    source.write_bytes(b"another capture")
+    assert pack(entries, archive) != first

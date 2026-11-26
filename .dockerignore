@@ -7,6 +7,12 @@
 **/.pytest_cache
 **/.mypy_cache
 **/.ruff_cache
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/colab-config
+results
 **/node_modules
 **/dist
 **/var

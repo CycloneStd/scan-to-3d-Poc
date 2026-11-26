@@ -76,17 +76,28 @@ async function errorMessage(response: Response) {
   return `Request failed (${response.status}).`
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function uploadRequest(path: string, init: RequestInit = {}) {
+  let response = await authenticatedFetch(path, init)
+  for (let attempt = 0; response.status === 429 && attempt < 2; attempt++) {
+    const seconds = Number(response.headers.get('Retry-After'))
+    if (!Number.isFinite(seconds) || seconds < 1 || seconds > 60) break
+    await new Promise((resolve) => window.setTimeout(resolve, seconds * 1000))
+    response = await authenticatedFetch(path, init)
+  }
+  return response
+}
+
+async function requestJson<T>(path: string, init: RequestInit = {}, send = authenticatedFetch): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  const response = await authenticatedFetch(path, { ...init, headers })
+  const response = await send(path, { ...init, headers })
   if (!response.ok) throw new ApiRequestError(await errorMessage(response), response.status)
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
-async function download(path: string) {
-  const response = await authenticatedFetch(path)
+async function download(path: string, signal?: AbortSignal) {
+  const response = await authenticatedFetch(path, { signal })
   if (!response.ok) throw new ApiRequestError(await errorMessage(response), response.status)
   return response.blob()
 }
@@ -101,7 +112,7 @@ export const scansApi = {
     const initialized = await requestJson<UploadInit>(`/scans/${encodeURIComponent(scanId)}/uploads`, {
       method: 'POST',
       body: JSON.stringify({ filename: file.name, content_type: fileContentType(file), size_bytes: file.size }),
-    })
+    }, uploadRequest)
     const target = new URL(initialized.upload_url, apiUrl('/'))
     const apiBase = new URL(apiUrl('/'))
     const apiPrefix = apiBase.pathname.replace(/\/+$/, '')
@@ -110,13 +121,14 @@ export const scansApi = {
       ? `${target.pathname.slice(apiPrefix.length)}${target.search}`
       : null
     const uploadResponse = localPath && target.origin === apiBase.origin
-      ? await authenticatedFetch(localPath, { method: initialized.method, headers: initialized.headers, body: file })
+      ? await uploadRequest(localPath, { method: initialized.method, headers: initialized.headers, body: file })
       : await fetch(target, { method: initialized.method, headers: initialized.headers, body: file, credentials: 'omit', redirect: 'error' })
     if (!uploadResponse.ok) throw new ApiRequestError(`Upload failed (${uploadResponse.status}).`, uploadResponse.status)
-    await requestJson(`/scans/${encodeURIComponent(scanId)}/uploads/${encodeURIComponent(initialized.asset_id)}/complete`, { method: 'POST' })
+    if (localPath && target.origin === apiBase.origin) return
+    await requestJson(`/scans/${encodeURIComponent(scanId)}/uploads/${encodeURIComponent(initialized.asset_id)}/complete`, { method: 'POST' }, uploadRequest)
   },
   start: (scanId: string) => requestJson<ScanJob>(`/scans/${encodeURIComponent(scanId)}/jobs`, { method: 'POST' }),
   job: (jobId: string) => requestJson<ScanJob>(`/jobs/${encodeURIComponent(jobId)}`),
-  artifact: (artifactId: string) => download(`/artifacts/${encodeURIComponent(artifactId)}/download`),
+  artifact: (artifactId: string, signal?: AbortSignal) => download(`/artifacts/${encodeURIComponent(artifactId)}/download`, signal),
   sourceAsset: (assetId: string) => download(`/assets/${encodeURIComponent(assetId)}/download`),
 }

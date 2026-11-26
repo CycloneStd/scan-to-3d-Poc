@@ -15,6 +15,13 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def has_expired(expires_at: datetime) -> bool:
+    # SQLite returns a naive datetime for UTC columns. PostgreSQL includes the offset.
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= utcnow()
+
+
 class User(Base):
     __tablename__ = "users"
 

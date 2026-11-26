@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
-import { PLYLoader } from 'three/addons/loaders/PLYLoader.js'
-import { USDZLoader } from 'three/addons/loaders/USDZLoader.js'
 import cycloneMark from '../../assets/cyclone-mark.webp'
 import { scansApi, type ScanArtifact } from '../../services/scans'
 
@@ -21,7 +17,14 @@ function disposeModel(root: THREE.Object3D) {
     else if (material) materials.add(material)
   })
   geometries.forEach((geometry) => geometry.dispose())
-  materials.forEach((material) => material.dispose())
+  const textures = new Set<THREE.Texture>()
+  materials.forEach((material) => {
+    for (const value of Object.values(material)) {
+      if (value instanceof THREE.Texture) textures.add(value)
+    }
+    material.dispose()
+  })
+  textures.forEach((texture) => texture.dispose())
 }
 
 export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | null }) {
@@ -41,18 +44,25 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
   const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  const invalidate = useRef<() => void>(() => {})
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const hasSplat = useRef(false)
+  const modeRef = useRef<RenderMode>('textured')
+
   function flipUpright() {
     const modelRoot = modelRootRef.current
     if (!modelRoot) return
     modelRoot.rotation.x = (modelRoot.rotation.x + Math.PI) % (Math.PI * 2)
-    controlsRef.current?.update()
+    if (modeRef.current === 'points') applyRenderMode('points')
+    invalidate.current()
   }
 
   function rotateQuarterTurn() {
     const modelRoot = modelRootRef.current
     if (!modelRoot) return
     modelRoot.rotation.y = (modelRoot.rotation.y + Math.PI / 2) % (Math.PI * 2)
-    controlsRef.current?.update()
+    if (modeRef.current === 'points') applyRenderMode('points')
+    invalidate.current()
   }
 
   function zoomBy(factor: number) {
@@ -88,6 +98,8 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
   }
 
   function applyRenderMode(mode: RenderMode) {
+    modeRef.current = mode
+    invalidate.current()
     setRenderMode(mode)
     const modelRoot = modelRootRef.current
     const pointsGroup = pointsGroupRef.current
@@ -128,7 +140,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
         pointsGroup.add(points)
       }
     })
-    modelRoot.visible = mode !== 'points' || containsPointCloud
+    modelRoot.visible = mode !== 'points' || containsPointCloud || hasSplat.current
     pointsGroup.visible = mode === 'points'
   }
 
@@ -136,6 +148,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     const next = !autoRotate
     setAutoRotate(next)
     if (controlsRef.current) controlsRef.current.autoRotate = next
+    invalidate.current()
   }
 
   async function toggleFullscreen() {
@@ -153,6 +166,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     const nextVisible = !gridVisible
     setGridVisible(nextVisible)
     if (gridRef.current) gridRef.current.visible = nextVisible
+    invalidate.current()
   }
 
   useEffect(() => {
@@ -179,6 +193,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
       setWebglUnavailable(true)
       return
     }
+    rendererRef.current = renderer
     renderer.setClearColor(0x25272a, 1)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.7))
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -241,44 +256,48 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === shellRef.current)
     document.addEventListener('fullscreenchange', syncFullscreen)
 
+    let frame = 0
+    function render() {
+      frame = 0
+      controls.update()
+      renderer.render(scene, camera)
+      if (controls.autoRotate) requestFrame()
+    }
+    function requestFrame() {
+      if (!frame) frame = requestAnimationFrame(render)
+    }
+    invalidate.current = requestFrame
+    controls.addEventListener('change', requestFrame)
     const resize = () => {
       const width = Math.max(host.clientWidth, 1)
       const height = Math.max(host.clientHeight, 1)
       camera.aspect = width / height
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
+      requestFrame()
     }
     const observer = new ResizeObserver(resize)
     observer.observe(host)
     resize()
 
-    renderer.setAnimationLoop(() => {
-      controls.update()
-      renderer.render(scene, camera)
-    })
-
     return () => {
       observer.disconnect()
       document.removeEventListener('fullscreenchange', syncFullscreen)
-      renderer.setAnimationLoop(null)
+      controls.removeEventListener('change', requestFrame)
+      cancelAnimationFrame(frame)
+      invalidate.current = () => {}
       controls.dispose()
       controlsRef.current = null
       gridRef.current = null
       modelRootRef.current = null
       pointsGroupRef.current = null
-      pointsGroup.traverse((object) => {
-        if (object instanceof THREE.Points) object.material.dispose()
-      })
-      modelRoot.traverse((object) => {
-        const material = wireframeMaterialsRef.current.get(object as THREE.Mesh)
-        material?.dispose()
-      })
       grid.geometry.dispose()
       const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material]
       gridMaterials.forEach((material) => material.dispose())
       axes.geometry.dispose()
       const axisMaterials = Array.isArray(axes.material) ? axes.material : [axes.material]
       axisMaterials.forEach((material) => material.dispose())
+      rendererRef.current = null
       renderer.dispose()
       host.replaceChildren()
     }
@@ -290,7 +309,15 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     if (!modelRoot || !pointsGroup) return
     modelRoot.clear()
     pointsGroup.clear()
-    if (!artifact) return
+    invalidate.current()
+    if (!artifact) {
+      setLoading(false)
+      setLoadError(false)
+      return
+    }
+    const controller = new AbortController()
+    let disposeSplat: (() => void) | undefined
+    let splatBounds: THREE.Box3 | undefined
     let cancelled = false
     setLoadError(false)
     setLoading(true)
@@ -298,15 +325,22 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     async function loadArtifact(artifact: ScanArtifact, modelRoot: THREE.Group) {
       try {
         let loaded: THREE.Object3D
-        const blob = await scansApi.artifact(artifact.id)
+        const blob = await scansApi.artifact(artifact.id, controller.signal)
+        if (cancelled) return
         const extension = artifact.filename.split('.').pop()?.toLowerCase()
         if (extension === 'glb' || extension === 'gltf') {
+          const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+          if (cancelled) return
           const data = await blob.arrayBuffer()
           const parsed = await new GLTFLoader().parseAsync(data, '')
           loaded = parsed.scene
         } else if (extension === 'obj') {
+          const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js')
+          if (cancelled) return
           loaded = new OBJLoader().parse(await blob.text())
-        } else if (extension === 'ply') {
+        } else if (extension === 'ply' && !/^scene(?:\.compressed)?\.ply$/i.test(artifact.filename)) {
+          const { PLYLoader } = await import('three/addons/loaders/PLYLoader.js')
+          if (cancelled) return
           const geometry = new PLYLoader().parse(await blob.arrayBuffer())
           geometry.computeBoundingSphere()
           if (geometry.hasAttribute('color')) {
@@ -315,16 +349,34 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
             loaded = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfe6eb, size: 0.01, sizeAttenuation: true }))
           }
         } else if (extension === 'usdz') {
+          const { USDZLoader } = await import('three/addons/loaders/USDZLoader.js')
+          if (cancelled) return
           loaded = new USDZLoader().parse(await blob.arrayBuffer())
-        } else if (extension === 'spz') {
-          const { SplatMesh } = await import('@sparkjsdev/spark')
-          const url = URL.createObjectURL(blob)
-          const splat = new SplatMesh({ url })
+        } else if (extension === 'spz' || extension === 'ply') {
+          const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark')
+          const bytes = await blob.arrayBuffer()
+          if (cancelled) return
+          const splat = new SplatMesh({ fileBytes: bytes, fileName: artifact.filename })
           try {
             await splat.initialized
-          } finally {
-            URL.revokeObjectURL(url)
+          } catch (error) {
+            splat.dispose()
+            throw error
           }
+          if (cancelled) { splat.dispose(); return }
+          const renderer = rendererRef.current
+          const scene = modelRoot.parent
+          if (!renderer || !scene) { splat.dispose(); return }
+          const spark = new SparkRenderer({ renderer, onDirty: () => invalidate.current() })
+          scene.add(spark)
+          disposeSplat = () => {
+            splat.removeFromParent()
+            spark.removeFromParent()
+            splat.dispose()
+            spark.dispose()
+          }
+          hasSplat.current = true
+          splatBounds = splat.getBoundingBox()
           loaded = splat
         } else {
           throw new Error(`Unsupported result format: ${extension ?? 'unknown'}`)
@@ -351,7 +403,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
         })
 
         modelRoot.add(loaded)
-        const bounds = new THREE.Box3().setFromObject(loaded)
+        const bounds = splatBounds ?? new THREE.Box3().setFromObject(loaded)
         if (!bounds.isEmpty()) {
           const center = bounds.getCenter(new THREE.Vector3())
           const size = bounds.getSize(new THREE.Vector3())
@@ -367,7 +419,7 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
             controls.update()
           }
         }
-        applyRenderMode(renderMode)
+        applyRenderMode(modeRef.current)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -381,8 +433,16 @@ export default function ResultsViewer({ artifact }: { artifact: ScanArtifact | n
     })
     return () => {
       cancelled = true
+      controller.abort()
+      hasSplat.current = false
+      disposeSplat?.()
+      pointsGroup.traverse((object) => {
+        if (object instanceof THREE.Points) object.material.dispose()
+      })
       modelRoot.traverse((object) => {
         const wireframe = wireframeMaterialsRef.current.get(object as THREE.Mesh)
+        const original = originalMaterialsRef.current.get(object as THREE.Mesh)
+        if (original) (object as THREE.Mesh).material = original
         wireframe?.dispose()
       })
       disposeModel(modelRoot)

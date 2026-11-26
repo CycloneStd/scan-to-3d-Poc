@@ -75,7 +75,7 @@ class Settings(BaseSettings):
         secret = self.jwt_secret.get_secret_value()
         if len(secret) < 32:
             raise ValueError("WEBXR_JWT_SECRET must contain at least 32 characters")
-        if self.environment == "production" and secret.lower() in {"change-me", "changeme", "secret"}:
+        if self.environment == "production" and secret.lower() == "local-only-change-this-secret-32-chars":
             raise ValueError("Set a unique WEBXR_JWT_SECRET in production")
         if self.storage_backend == "s3" and not self.storage_s3_bucket:
             raise ValueError("WEBXR_STORAGE_S3_BUCKET is required when storage_backend=s3")

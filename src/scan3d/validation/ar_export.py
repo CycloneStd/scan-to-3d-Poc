@@ -33,6 +33,39 @@ def main():
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     bpy.ops.object.shade_smooth()
 
+    # Configure realistic PBR material properties (avoid flat washed-out sheet paper look)
+    for slot in obj.material_slots:
+        mat = slot.material
+        if not mat:
+            continue
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        principled = next((n for n in nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if principled:
+            if "Roughness" in principled.inputs:
+                principled.inputs["Roughness"].default_value = 0.85
+            if "Specular" in principled.inputs:
+                principled.inputs["Specular"].default_value = 0.15
+            elif "Specular IOR Level" in principled.inputs:
+                principled.inputs["Specular IOR Level"].default_value = 0.15
+            if "Metallic" in principled.inputs:
+                principled.inputs["Metallic"].default_value = 0.0
+
+            tex = next((n for n in nodes if n.type == "TEX_IMAGE" and n.image), None)
+            if tex and "Base Color" in principled.inputs:
+                links.new(tex.outputs["Color"], principled.inputs["Base Color"])
+
+    if hasattr(obj.data, "use_auto_smooth"):
+        obj.data.use_auto_smooth = True
+        obj.data.auto_smooth_angle = 0.523599
+    else:
+        try:
+            bpy.ops.object.modifier_add(type="WEIGHTED_NORMAL")
+            obj.modifiers["WeightedNormal"].keep_sharp = True
+        except Exception:
+            pass
+
     corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
     dimensions = [max(corner[i] for corner in corners) - min(corner[i] for corner in corners)
                   for i in range(3)]

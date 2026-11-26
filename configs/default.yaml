@@ -13,10 +13,10 @@ video:
   oversample: 3
 
 validation:
-  min_short_side: 600     # px, flag smaller images
-  blur_ratio: 0.5         # flag if sharpness < ratio * median of its camera group
-  min_brightness: 30
-  max_brightness: 225
+  min_short_side: 400     # px, flag smaller images
+  blur_ratio: 0.3         # flag if sharpness < ratio * median of its camera group
+  min_brightness: 20
+  max_brightness: 235
 
 remote:
   session: scan3d
@@ -30,6 +30,7 @@ colmap:
 
 features: 
   camera_model: SIMPLE_RADIAL
+  single_camera: false
   use_gpu: false
   learned_recovery: true
   matcher: auto
@@ -40,8 +41,8 @@ features:
 dense:
   backend: colmap
   geom_consistency: true
-  min_registered_fraction: 0.7
-  view_limit: 48
+  min_registered_fraction: 0.2
+  view_limit: 40
   source_views: 6
   window_step: 2
   max_image_size: 1024
@@ -53,8 +54,30 @@ sparse:
   mapper: incremental
 
 mesh:
-  max_edge_factor: 12
+  max_edge_factor: 6.0
+  min_component_faces: 150
   texture: true
-  target_face_ratio: 0.05
-  poisson_depth: 10
-  poisson_trim: 1
+  target_face_ratio: 0.15
+  poisson_depth: 11
+  poisson_trim: 7
+
+splat:
+  max_steps: 30000
+  max_image_size: 768
+  upload_jpeg_quality: 85
+  data_factor: 1
+  compress: ["spz", "ply"]
+  download_ply: true
+  clean:
+    min_opacity: 0.3
+    max_scale_frac: 0.05
+    crop_factor: 1.2
+    bbox_margin: 0.2
+
+ar:
+  target_faces: 120000
+  texture_px: 4096
+  jpeg_quality: 90
+  scale_factor: auto
+  marker_id: 0
+  marker_length_m: 0.10

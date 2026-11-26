@@ -43,6 +43,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.tmp_pytest/
 nosetests.xml
 coverage.xml
 *.cover

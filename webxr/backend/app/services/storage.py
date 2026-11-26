@@ -1,6 +1,9 @@
 import shutil
+from contextlib import closing, contextmanager
 from pathlib import Path
+from uuid import uuid4
 from typing import BinaryIO
+from urllib.parse import quote
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -12,7 +15,8 @@ class Storage:
     def __init__(self):
         self.settings = get_settings()
         self.root = self.settings.storage_local_root.resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+        if self.settings.storage_backend == "local":
+            self.root.mkdir(parents=True, exist_ok=True)
         self.s3 = None
         self.s3_presign = None
         if self.settings.storage_backend == "s3":
@@ -35,22 +39,35 @@ class Storage:
             raise ValueError("Invalid storage key")
         return path
 
-    def presign_put(self, key: str, content_type: str, expires: int = 900) -> str:
+    def presign_put(self, key: str, content_type: str, size_bytes: int, expires: int = 900) -> str:
         if self.s3:
             return self.s3_presign.generate_presigned_url(
-                "put_object", Params={"Bucket": self.settings.storage_s3_bucket, "Key": key, "ContentType": content_type},
+                "put_object", Params={"Bucket": self.settings.storage_s3_bucket, "Key": key, "ContentType": content_type,
+                                      "ContentLength": size_bytes, "IfNoneMatch": "*"},
                 ExpiresIn=expires,
             )
         return f"{self.settings.api_prefix}/uploads/local/{key.rsplit('/', 2)[-2]}"
+
+    @contextmanager
+    def local_upload(self, key: str):
+        destination = self._local_path(key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Use the same creation mode as other files on the shared worker volume.
+        temporary = destination.parent / f".{uuid4().hex}.upload"
+        body = temporary.open("xb")
+        try:
+            with body:
+                yield body
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def put_fileobj(self, key: str, body: BinaryIO, content_type: str) -> None:
         if self.s3:
             self.s3.upload_fileobj(body, self.settings.storage_s3_bucket, key, ExtraArgs={"ContentType": content_type})
         else:
-            destination = self._local_path(key)
-            destination.parent.mkdir(parents=True, exist_ok=True)
             body.seek(0)
-            with destination.open("wb") as output:
+            with self.local_upload(key) as output:
                 shutil.copyfileobj(body, output, length=1024 * 1024)
 
     def upload_file(self, key: str, filename: Path, content_type: str) -> None:
@@ -74,7 +91,8 @@ class Storage:
     def read_prefix(self, key: str, length: int = 32) -> bytes:
         if self.s3:
             response = self.s3.get_object(Bucket=self.settings.storage_s3_bucket, Key=key, Range=f"bytes=0-{length - 1}")
-            return response["Body"].read(length)
+            with closing(response["Body"]) as body:
+                return body.read(length)
         with self._local_path(key).open("rb") as body:
             return body.read(length)
 
@@ -83,7 +101,8 @@ class Storage:
             raise RuntimeError("Signed remote downloads are available only with S3 storage")
         return self.s3_presign.generate_presigned_url(
             "get_object", Params={"Bucket": self.settings.storage_s3_bucket, "Key": key,
-                                  "ResponseContentDisposition": f'attachment; filename="{filename.replace(chr(34), "")}"'},
+                                  "ResponseContentDisposition": "attachment; filename*=UTF-8''" + quote(filename, safe=""),
+                                  "ResponseCacheControl": "private, no-store"},
             ExpiresIn=expires,
         )
 
@@ -95,7 +114,7 @@ class Storage:
 
     def delete_prefix(self, prefix: str) -> None:
         """Remove every stored object for a scan, including objects left without DB rows."""
-        if not prefix or not prefix.endswith("/"):
+        if not prefix.endswith("/") or any(part in {"", ".", ".."} for part in prefix[:-1].split("/")):
             raise ValueError("Storage prefixes must be non-empty and directory-scoped")
         if self.s3:
             paginator = self.s3.get_paginator("list_objects_v2")
@@ -112,6 +131,8 @@ class Storage:
             return
 
         path = self._local_path(prefix.rstrip("/"))
+        if path == self.root:
+            raise ValueError("Cannot remove the storage root")
         if path.exists():
             shutil.rmtree(path)
 

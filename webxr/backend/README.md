@@ -110,7 +110,7 @@ Passwords must be 12–256 characters. Configure the production email provider b
 ### Scans, uploads, jobs, and results
 
 - `POST /scans`, `GET /scans`, `GET /scans/{scan_id}`, `PATCH /scans/{scan_id}`, `DELETE /scans/{scan_id}`.
-- `POST /scans/{scan_id}/uploads` initializes an upload and returns a short-lived S3 URL or authenticated local `PUT` URL. After S3 upload, call `POST /scans/{scan_id}/uploads/{asset_id}/complete`.
+- `POST /scans/{scan_id}/uploads` initializes an upload and returns a short-lived S3 URL or authenticated local `PUT` URL. Send the returned upload headers, including `If-None-Match: *`, and allow that header in bucket CORS. The browser supplies the signed content length from the File body. After S3 upload, call `POST /scans/{scan_id}/uploads/{asset_id}/complete`.
 - `GET /assets/{asset_id}/download` returns an authorized download or short-lived redirect.
 - `POST /scans/{scan_id}/jobs` queues a reconstruction after all input files are complete.
 - `GET /jobs/{job_id}` reports persisted job state and pipeline stage progress.

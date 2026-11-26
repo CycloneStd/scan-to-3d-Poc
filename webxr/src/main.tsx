@@ -37,7 +37,7 @@ async function loadAuthRoute(path: string) {
     authRoutes[path](),
     import('./components/auth/LoginImageCards'),
   ])
-  await imageCards.preloadLoginImages()
+  void imageCards.preloadLoginImages()
   return page
 }
 
@@ -98,6 +98,7 @@ async function navigate(url: URL, mode: 'push' | 'pop' | 'initial' = 'push', has
     document.documentElement.classList.remove('route-app-initial')
     if (landingRoot) landingRoot.hidden = false
     if (appContainer) appContainer.hidden = true
+    appRoot?.render(null)
     document.body.className = landingBodyClass
     if (mode === 'push') window.history.pushState(null, '', url)
     else if (url.href !== window.location.href) window.history.replaceState(null, '', url)
